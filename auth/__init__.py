@@ -4,7 +4,6 @@ import models
 
 bp = Blueprint("auth", __name__, url_prefix="/auth")
 
-# TECH-DEBT-2: Easy - No password hashing
 @bp.route("/login", methods=["POST"])
 def login():
     user = models.get_user(request.form["username"])
@@ -17,6 +16,5 @@ def logout():
     session.pop("user", None)
     return redirect(url_for("index"))
 
-# TECH-DEBT-15: Mutable default arg
 def current_user(default=[]):
     return session.get("user", default)

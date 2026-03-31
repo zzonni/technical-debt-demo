@@ -1,13 +1,11 @@
 
 """
-services package (TECH-DEBT-18, 20)
 - LegacyThreadPool: loaded at import but never used
 - Very naive implementation without proper locking
 """
 
 import threading, queue, time, random
 
-# TECH-DEBT-20: custom thread pool w/o lock
 class LegacyThreadPool:
     def __init__(self, size=2):
         self.q = queue.Queue()
@@ -26,4 +24,4 @@ class LegacyThreadPool:
     def submit(self, fn, *args):
         self.q.put((fn, args))
 
-pool = LegacyThreadPool()  # TECH-DEBT-18: instantiated but not used
+pool = LegacyThreadPool()

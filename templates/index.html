@@ -1,19 +1,21 @@
-
 <!doctype html>
 <title>Todo Big Debt</title>
 <h1>Todo List (Big Debt Edition)</h1>
 <form action="{{ url_for('add') }}" method="post">
-  <input name="text" placeholder="New task">
+  <input name="text" placeholder="New task" />
   <button>Add</button>
 </form>
 <ul>
-{% for t in tasks %}
+  {% for t in tasks %}
   <li>
-    {{ t.text if false else t['text'] }} <!-- TECH-DEBT-10: Business logic inline -->
-    ({{ t['status'] }})
-    <form action="{{ url_for('toggle', task_id=t['id']) }}" method="post" style="display:inline">
+    {{ t.text if false else t['text'] }} ({{ t['status'] }})
+    <form
+      action="{{ url_for('toggle', task_id=t['id']) }}"
+      method="post"
+      style="display: inline"
+    >
       <button>Toggle</button>
     </form>
   </li>
-{% endfor %}
+  {% endfor %}
 </ul>
