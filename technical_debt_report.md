@@ -1,7 +1,7 @@
 # Socio-Technical Debt Report
 
 This report outlines 10 distinct kinds of **socio-technical debt**. It highlights how organizational structures, company culture, human behaviors, and restrictive policies directly infect the technical architecture and code health.
-
+ 
 ---
 
 ## Issue Breakdown
