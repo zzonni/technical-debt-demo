@@ -9,5 +9,3 @@ for practice / code review exercises.
 pip install -r requirements.txt
 python app.py
 ```
-
-      
