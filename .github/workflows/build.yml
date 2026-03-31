@@ -1,5 +1,11 @@
 name: Build
 on:
+  push:
+      branches:
+        - main
+        - 'feature/**'
+        - 'release/**'
+        - 'hotfix/**'
   pull_request:
     branches:
       - main
