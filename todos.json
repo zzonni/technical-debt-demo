@@ -1,0 +1,20 @@
+[
+  {
+    "id": 1,
+    "text": "Hi h\u1ecdc",
+    "status": "open",
+    "created_at": "2026-03-31T12:30:41.882110"
+  },
+  {
+    "id": 2,
+    "text": "Ve nau com",
+    "status": "open",
+    "created_at": "2026-03-31T12:30:50.614595"
+  },
+  {
+    "id": 3,
+    "text": "An sang",
+    "status": "open",
+    "created_at": "2026-03-31T12:30:59.361871"
+  }
+]
