@@ -47,6 +47,45 @@ class TestToggle:
         assert models.find_task(task["id"])["status"] == "done"
 
 
+class TestToggleMissingTask:
+    def test_toggle_nonexistent_task_redirects(self, client):
+        resp = client.post("/toggle/9999")
+        assert resp.status_code == 302
+
+    def test_toggle_done_to_open(self, client):
+        task = models.create_task("alice", "t1")
+        task["status"] = "done"
+        resp = client.post(f"/toggle/{task['id']}")
+        assert resp.status_code == 302
+        assert models.find_task(task["id"])["status"] == "open"
+
+
+class TestRequireLogin:
+    def test_redirects_when_not_logged_in(self, client):
+        from app import app, require_login
+        with app.test_request_context("/"):
+            result = require_login()
+            assert result.status_code == 302
+            assert "/" in result.headers["Location"]
+
+
+class TestMailReport:
+    def test_mail_report_returns_sent(self, client, monkeypatch):
+        calls = []
+        monkeypatch.setattr("services.email.send_email", lambda *a: calls.append(a))
+        resp = client.get("/mail_report")
+        assert resp.status_code == 200
+        assert resp.data == b"sent"
+        assert len(calls) == 1
+
+    def test_mail_report_with_custom_recipient(self, client, monkeypatch):
+        calls = []
+        monkeypatch.setattr("services.email.send_email", lambda *a: calls.append(a))
+        resp = client.get("/mail_report?to=test@example.com")
+        assert resp.status_code == 200
+        assert calls[0][0] == "test@example.com"
+
+
 class TestAuth:
     def test_login(self, client):
         models.create_user("alice", "pw")

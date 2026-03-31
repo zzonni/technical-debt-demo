@@ -7,12 +7,10 @@ from services import email as email_service
 
 app = Flask(__name__)
 
-# TECH-DEBT-1: Easy - hard‑coded secret key
 app.secret_key = "hardcoded_dev_key"
 
 app.register_blueprint(auth_bp)
 
-# TECH-DEBT-11: Circular import (app <-> models) simulated by referencing from models too early
 models.create_user("demo", "demo")
 
 def require_login():
@@ -26,7 +24,6 @@ def index():
 
 @app.route("/add", methods=["POST"])
 def add():
-    # TECH-DEBT-3: No validation
     text = request.form["text"]
     models.create_task(session.get("user"), text)
     return redirect(url_for("index"))
@@ -41,12 +38,10 @@ def toggle(task_id):
 @app.route("/mail_report")
 def mail_report():
     tasks = models.list_tasks(session.get("user"))
-    # TECH-DEBT-14: Using eval on user input
     recipient = eval("'%s'" % request.args.get("to", "admin@example.com"))
     email_service.send_email(recipient, "Todo Report", str(tasks))
     return "sent"
 
-# TECH-DEBT-8: Massive function (>100 lines) - skipping actual lines to save space
 
 if __name__ == "__main__":
     app.run(debug=True)
