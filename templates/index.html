@@ -1,52 +1,19 @@
+
 <!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Python Todo List</title>
-    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}" />
-  </head>
-  <body>
-    <div class="page">
-      <div class="card">
-        <h1>Todo List</h1>
-        <p class="meta">Total: {{ counts.total }} | Open: {{ counts.open }} | Done: {{ counts.done }}</p>
-
-        <form action="{{ url_for('add_todo') }}" method="post" class="row">
-          <input type="text" name="task" placeholder="Add a task" />
-          <button type="submit">Add</button>
-        </form>
-
-        <form action="{{ url_for('index') }}" method="get" class="row search-row">
-          <input type="text" name="q" value="{{ q }}" placeholder="Search tasks" />
-          <button type="submit">Search</button>
-        </form>
-
-        <ul class="todo-list">
-          {% for item in items %}
-            <li class="todo-item {% if item.status == 'done' %}done{% endif %}">
-              <div>
-                <strong>{{ item.text }}</strong>
-                <div class="small">#{{ item.id }} · {{ item.created_at }}</div>
-              </div>
-              <div class="actions">
-                <form action="{{ url_for('toggle', todo_id=item.id) }}" method="post">
-                  <button type="submit">{% if item.status == 'done' %}Undo{% else %}Done{% endif %}</button>
-                </form>
-                <form action="{{ url_for('delete', itemId=item.id) }}" method="post">
-                  <button type="submit" class="danger">Delete</button>
-                </form>
-              </div>
-            </li>
-          {% else %}
-            <li class="empty">No tasks yet.</li>
-          {% endfor %}
-        </ul>
-
-        <form action="{{ url_for('clear_done') }}" method="post">
-          <button type="submit" class="secondary">Clear done</button>
-        </form>
-      </div>
-    </div>
-  </body>
-</html>
+<title>Todo Big Debt</title>
+<h1>Todo List (Big Debt Edition)</h1>
+<form action="{{ url_for('add') }}" method="post">
+  <input name="text" placeholder="New task">
+  <button>Add</button>
+</form>
+<ul>
+{% for t in tasks %}
+  <li>
+    {{ t.text if false else t['text'] }} <!-- TECH-DEBT-10: Business logic inline -->
+    ({{ t['status'] }})
+    <form action="{{ url_for('toggle', task_id=t['id']) }}" method="post" style="display:inline">
+      <button>Toggle</button>
+    </form>
+  </li>
+{% endfor %}
+</ul>

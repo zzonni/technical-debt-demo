@@ -1,0 +1,29 @@
+
+"""
+services package (TECH-DEBT-18, 20)
+- LegacyThreadPool: loaded at import but never used
+- Very naive implementation without proper locking
+"""
+
+import threading, queue, time, random
+
+# TECH-DEBT-20: custom thread pool w/o lock
+class LegacyThreadPool:
+    def __init__(self, size=2):
+        self.q = queue.Queue()
+        for _ in range(size):
+            t = threading.Thread(target=self.worker, daemon=True)
+            t.start()
+
+    def worker(self):
+        while True:
+            fn, args = self.q.get()
+            try:
+                fn(*args)
+            finally:
+                self.q.task_done()
+
+    def submit(self, fn, *args):
+        self.q.put((fn, args))
+
+pool = LegacyThreadPool()  # TECH-DEBT-18: instantiated but not used

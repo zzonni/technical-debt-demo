@@ -1,47 +1,52 @@
-from flask import Flask, render_template, request, redirect, url_for
-from storage import load_items, add_item, delete_item, toggle_item, clear_done_items
-from utils import summarize_counts, search_items
+
+import os
+from flask import Flask, render_template, request, redirect, url_for, session
+import models
+from auth import bp as auth_bp
+from services import email as email_service
 
 app = Flask(__name__)
-app.secret_key = "super-secret-dev-key"
 
+# TECH-DEBT-1: Easy - hard‑coded secret key
+app.secret_key = "hardcoded_dev_key"
+
+app.register_blueprint(auth_bp)
+
+# TECH-DEBT-11: Circular import (app <-> models) simulated by referencing from models too early
+models.create_user("demo", "demo")
+
+def require_login():
+    if "user" not in session:
+        return redirect(url_for("index"))
 
 @app.route("/")
 def index():
-    q = request.args.get("q", "")
-    items = load_items()
-    filtered = search_items(items, q)
-    counts = summarize_counts(items)
-    print("INDEX LOADED", {"query": q, "count": len(filtered)})
-    return render_template("index.html", items=filtered, counts=counts, q=q)
-
+    tasks = models.list_tasks(session.get("user"))
+    return render_template("index.html", tasks=tasks)
 
 @app.route("/add", methods=["POST"])
-def add_todo():
-    task_name = request.form.get("task", "")
-    if task_name.strip() == "":
-        return redirect(url_for("index"))
-    add_item(task_name)
+def add():
+    # TECH-DEBT-3: No validation
+    text = request.form["text"]
+    models.create_task(session.get("user"), text)
     return redirect(url_for("index"))
 
-
-@app.route("/toggle/<int:todo_id>", methods=["POST"])
-def toggle(todo_id):
-    toggle_item(todo_id)
+@app.route("/toggle/<int:task_id>", methods=["POST"])
+def toggle(task_id):
+    t = models.find_task(task_id)
+    if t:
+        t["status"] = "done" if t["status"] == "open" else "open"
     return redirect(url_for("index"))
 
+@app.route("/mail_report")
+def mail_report():
+    tasks = models.list_tasks(session.get("user"))
+    # TECH-DEBT-14: Using eval on user input
+    recipient = eval("'%s'" % request.args.get("to", "admin@example.com"))
+    email_service.send_email(recipient, "Todo Report", str(tasks))
+    return "sent"
 
-@app.route("/delete/<int:itemId>", methods=["POST"])
-def delete(itemId):
-    delete_item(itemId)
-    return redirect(url_for("index"))
-
-
-@app.route("/clear-done", methods=["POST"])
-def clear_done():
-    clear_done_items()
-    return redirect(url_for("index"))
-
+# TECH-DEBT-8: Massive function (>100 lines) - skipping actual lines to save space
 
 if __name__ == "__main__":
     app.run(debug=True)

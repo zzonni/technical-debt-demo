@@ -1,46 +1,39 @@
-# Python Todo List with Intentional Technical Debt
 
-A small Python-only Todo List web app built with Flask.
+# Todo List – Big Debt Edition
+
+Flask + in‑memory store demo project **deliberately packed with 20 technical debts**  
+for practice / code review exercises.
 
 ## Run
 
 ```bash
-python -m venv .venv
-source .venv/bin/activate   # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 python app.py
 ```
 
-Then open `http://127.0.0.1:5000`.
+## Technical Debt Inventory (20)
 
-## Project Structure
+| Level | # | Description | File |
+|-------|---|-------------|------|
+| Easy | 1 | Hard‑coded secret key | app.py |
+| Easy | 2 | Plain‑text passwords (no hashing) | auth/__init__.py |
+| Medium | 3 | No input validation | app.py |
+| Medium | 4 | Duplicate session check scattered | app.py / auth |
+| Medium | 5 | No pagination or batching | models.list_tasks | 
+| Medium | 6 | Blocking email send in request thread | services/email.py |
+| Medium | 7 | Global mutable in‑memory DB | models.py |
+| Hard | 8 | Monolithic function placeholder (>100 lines) | app.py comment |
+| Hard | 9 | Eval‑like SQL‑inj risk analog | models.list_tasks() |
+| Hard | 10 | Business logic inside Jinja template | templates/index.html |
+| Hard | 11 | Circular import risk (app↔models) | app.py |
+| Hard | 12 | Direct data access from template | templates/index.html |
+| Hard | 13 | Lack of transaction/error handling | models.py |
+| Hard | 14 | `eval` on user input | app.py |
+| Hard | 15 | Mutable default argument | auth/__init__.py |
+| Hard | 16 | Tight coupling auth ↔ tasks | app.py / models |
+| Hard | 17 | No unit tests | — |
+| Hard | 18 | Legacy wrapper loaded but unused | services/__init__.py (placeholder) |
+| Very Hard | 19 | Mixed str/bytes handling risk in email | services/email.py |
+| Very Hard | 20 | Custom thread pool forgotten (race) | services/__init__.py comment |
 
-- `app.py` - main Flask app
-- `storage.py` - file-based persistence layer
-- `utils.py` - helper functions
-- `templates/index.html` - UI
-- `static/style.css` - styles
-
-## Intentional Technical Debt
-
-### Easy (3)
-1. **Hardcoded secret key** in `app.py`.
-2. **Print-based logging** instead of structured logging.
-3. **Inconsistent naming** (`todo_id`, `itemId`, `task_name`) across modules.
-
-### Medium (4)
-4. **File-based JSON storage** instead of a proper database; not scalable.
-5. **No input validation** for lengths/content beyond minimal checks.
-6. **Mixed responsibilities** in route handlers (business logic + HTTP + persistence).
-7. **Duplicate status logic** appears in multiple functions.
-
-### Hard (2)
-8. **Race condition risk** when multiple writes hit `todos.json` at the same time.
-9. **No automated tests / contract checks**, making refactoring risky.
-
-### Very Hard (1)
-10. **Hidden schema coupling and backward-compatibility hack** in `storage.py`: old and new todo shapes are silently normalized, making future migrations risky and bugs subtle.
-
-## Notes
-
-This project is intentionally imperfect for code review, refactoring, or software maintenance exercises.
+Use this project to practice identifying and refactoring technical debt.
