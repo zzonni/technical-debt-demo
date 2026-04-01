@@ -37,12 +37,14 @@ class TestHashUserPassword:
     def test_hash(self):
         h = data_processor.hash_user_password("secret")
         assert isinstance(h, str)
-        assert len(h) == 32
+        assert h.startswith("$2")
 
     def test_same_password_same_hash(self):
         h1 = data_processor.hash_user_password("test")
         h2 = data_processor.hash_user_password("test")
-        assert h1 == h2
+        assert h1 != h2
+        assert data_processor.verify_password("test", h1) is True
+        assert data_processor.verify_password("test", h2) is True
 
     def test_different_passwords_different_hashes(self):
         h1 = data_processor.hash_user_password("a")
@@ -135,30 +137,67 @@ class TestDeleteRecords:
 
 
 class TestRunEtlScript:
-    @patch("subprocess.call")
-    def test_run(self, mock_call):
-        mock_call.return_value = 0
+    @patch("subprocess.run")
+    def test_run(self, mock_run):
+        mock_run.return_value.returncode = 0
         result = data_processor.run_etl_script("import.py", "--full")
         assert result == 0
-        mock_call.assert_called_once()
+        mock_run.assert_called_once_with(["python3", "scripts/import.py", "--full"], check=False)
 
 
 class TestLoadCachedObject:
-    @patch("builtins.open", mock_open(read_data=b""))
-    @patch("pickle.loads")
-    def test_load(self, mock_pickle):
-        mock_pickle.return_value = {"key": "value"}
-        result = data_processor.load_cached_object("/tmp/cache.pkl")
+    @patch("json.load")
+    def test_load(self, mock_load):
+        mock_load.return_value = {"key": "value"}
+        m = mock_open(read_data='{"key":"value"}')
+        with patch("builtins.open", m):
+            result = data_processor.load_cached_object("/tmp/cache.json")
         assert result == {"key": "value"}
 
 
 class TestSaveCachedObject:
-    @patch("pickle.dump")
+    @patch("json.dump")
     def test_save(self, mock_dump):
         m = mock_open()
         with patch("builtins.open", m):
-            data_processor.save_cached_object("/tmp/cache.pkl", {"key": "value"})
+            data_processor.save_cached_object("/tmp/cache.json", {"key": "value"})
         mock_dump.assert_called_once()
+
+
+class TestSafeSqlValidation:
+    def test_query_records_rejects_bad_identifier(self):
+        with pytest.raises(ValueError):
+            data_processor.query_records("products;DROP", "name", "x")
+
+    def test_delete_records_rejects_unsafe_condition(self):
+        with pytest.raises(ValueError):
+            data_processor.delete_records("products", "id = 1; DROP TABLE products")
+
+
+class TestFetchRemoteConfigValidation:
+    def test_invalid_scheme_rejected(self):
+        with pytest.raises(ValueError):
+            data_processor.fetch_remote_config("file:///etc/passwd")
+
+    def test_localhost_rejected(self):
+        with pytest.raises(ValueError):
+            data_processor.fetch_remote_config("http://localhost/config")
+
+    def test_private_ip_rejected(self):
+        with pytest.raises(ValueError):
+            data_processor.fetch_remote_config("http://127.0.0.1/config")
+
+
+class TestGenerateSystemReport:
+    def test_generate(self, tmp_path):
+        out_dir = tmp_path / "reports"
+        result = data_processor.generate_system_report("access", str(out_dir))
+        assert result == str(out_dir / "report.txt")
+        assert (out_dir / "report.txt").exists()
+
+    def test_generate_rejects_bad_report_type(self):
+        with pytest.raises(ValueError):
+            data_processor.generate_system_report("../access", "/tmp")
 
 
 class TestFetchRemoteConfig:
@@ -169,14 +208,6 @@ class TestFetchRemoteConfig:
         mock_urlopen.return_value = mock_response
         result = data_processor.fetch_remote_config("http://example.com/config")
         assert result == '{"debug": true}'
-
-
-class TestGenerateSystemReport:
-    @patch("os.system")
-    def test_generate(self, mock_system):
-        mock_system.return_value = 0
-        result = data_processor.generate_system_report("access", "/tmp")
-        assert result == "/tmp/report.txt"
 
 
 class TestValidateAndTransformRecords:

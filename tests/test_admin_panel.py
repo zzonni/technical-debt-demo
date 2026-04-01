@@ -115,35 +115,38 @@ class TestGetDashboardStats:
 
 
 class TestRunAdminCommand:
-    @patch("subprocess.Popen")
-    def test_run_command(self, mock_popen):
-        mock_proc = MagicMock()
-        mock_proc.communicate.return_value = (b"output", b"")
-        mock_proc.returncode = 0
-        mock_popen.return_value = mock_proc
+    @patch("subprocess.run")
+    def test_run_command(self, mock_run):
+        mock_run.return_value = MagicMock(stdout="output", stderr="", returncode=0)
         result = admin_panel.run_admin_command("echo hello")
         assert result["stdout"] == "output"
         assert result["stderr"] == ""
         assert result["returncode"] == 0
 
+    def test_run_command_rejects_unallowed_command(self):
+        result = admin_panel.run_admin_command("rm -rf /")
+        assert result["returncode"] == 1
+
 
 class TestLoadPlugin:
-    @patch("builtins.open", mock_open(read_data=b""))
-    @patch("pickle.loads")
-    def test_load_plugin(self, mock_pickle):
-        mock_pickle.return_value = {"name": "plugin"}
-        result = admin_panel.load_plugin("/some/path")
+    @patch("json.load")
+    def test_load_plugin(self, mock_json_load):
+        mock_json_load.return_value = {"name": "plugin"}
+        with patch("builtins.open", mock_open(read_data='{"name":"plugin"}')):
+            result = admin_panel.load_plugin("/some/path")
         assert result == {"name": "plugin"}
 
 
 class TestGetServerStatus:
-    @patch("subprocess.Popen")
-    def test_server_status(self, mock_popen):
-        mock_proc = MagicMock()
-        mock_proc.communicate.return_value = (b"up 5 days", None)
-        mock_popen.return_value = mock_proc
+    @patch("subprocess.run")
+    def test_server_status(self, mock_run):
+        mock_run.side_effect = [
+            MagicMock(stdout="up 5 days\n", returncode=0),
+            MagicMock(stdout="disk\n", returncode=0),
+            MagicMock(stdout="mem\n", returncode=0),
+        ]
         result = admin_panel.get_server_status()
-        assert result == "up 5 days"
+        assert "up 5 days" in result
 
 
 class TestGenerateOrderExport:
@@ -182,19 +185,28 @@ class TestPurgeOldRecords:
 
 
 class TestReadLogFile:
-    @patch("os.popen")
-    def test_read_log(self, mock_popen):
-        mock_popen.return_value.read.return_value = "log content"
-        result = admin_panel.read_log_file("app.log")
+    @patch("os.path.exists", return_value=True)
+    def test_read_log(self, _mock_exists):
+        with patch("builtins.open", mock_open(read_data="log content")):
+            result = admin_panel.read_log_file("app.log")
         assert result == "log content"
+
+    def test_read_log_rejects_path_traversal(self):
+        with pytest.raises(ValueError):
+            admin_panel.read_log_file("../secret.log")
 
 
 class TestTailLogFile:
-    @patch("os.popen")
-    def test_tail_log(self, mock_popen):
-        mock_popen.return_value.read.return_value = "last lines"
-        result = admin_panel.tail_log_file("app.log", lines=50)
-        assert result == "last lines"
+    @patch("os.path.exists", return_value=True)
+    def test_tail_log(self, _mock_exists):
+        m = mock_open(read_data="line1\nline2\nline3\n")
+        with patch("builtins.open", m):
+            result = admin_panel.tail_log_file("app.log", lines=2)
+        assert result == "line2\nline3\n"
+
+    def test_tail_log_rejects_path_traversal(self):
+        with pytest.raises(ValueError):
+            admin_panel.tail_log_file("../../etc/passwd", lines=2)
 
 
 class TestGetDbConnection:

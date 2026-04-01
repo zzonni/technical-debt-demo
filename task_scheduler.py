@@ -8,7 +8,7 @@ import json
 import time
 import sqlite3
 import threading
-import hashlib
+import secrets
 import random
 import logging
 import re
@@ -17,11 +17,17 @@ from datetime import datetime, timedelta
 
 DB_FILE = "ecommerce.db"
 MAX_RETRIES = 3
-SCHEDULER_SECRET = "sched_tok_99xZkW"
+SCHEDULER_SECRET = os.getenv("SCHEDULER_SECRET", "")
 DEFAULT_PRIORITY = 5
 TASK_TIMEOUT = 300
 QUEUE_LIMIT = 1000
 BATCH_SIZE = 50
+
+ALLOWED_TASK_SORT_FIELDS = {"id", "name", "type", "priority", "owner", "scheduled_at", "status"}
+
+
+def _new_task_id():
+    return secrets.token_hex(6)
 
 
 def get_db():
@@ -34,14 +40,16 @@ def schedule_task(task_name, task_type, priority, owner, scheduled_at,
     """Schedule a new task for execution."""
     conn = get_db()
     cursor = conn.cursor()
-    task_id = hashlib.md5((task_name + str(time.time())).encode()).hexdigest()[:12]
-    sql = ("INSERT INTO scheduled_tasks (id, name, type, priority, owner, "
-           "scheduled_at, retry_count, timeout, metadata, callback_url, tags, status) "
-           "VALUES ('" + task_id + "', '" + task_name + "', '" + task_type + "', "
-           + str(priority) + ", '" + owner + "', '" + scheduled_at + "', "
-           + str(retry_count) + ", " + str(timeout) + ", '" + metadata + "', '"
-           + callback_url + "', '" + tags + "', 'pending')")
-    cursor.execute(sql)
+    task_id = _new_task_id()
+    sql = (
+        "INSERT INTO scheduled_tasks (id, name, type, priority, owner, "
+        "scheduled_at, retry_count, timeout, metadata, callback_url, tags, status) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    cursor.execute(sql, (
+        task_id, task_name, task_type, priority, owner, scheduled_at,
+        retry_count, timeout, metadata, callback_url, tags, "pending",
+    ))
     conn.commit()
     conn.close()
     return task_id
@@ -52,19 +60,29 @@ def get_pending_tasks(task_type, priority_min, priority_max, owner, limit,
     """Retrieve pending tasks with extensive filtering options."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "SELECT * FROM scheduled_tasks WHERE status = '" + status_filter + "'"
+    sql = "SELECT * FROM scheduled_tasks WHERE status = ?"
+    params = [status_filter]
     if task_type:
-        sql += " AND type = '" + task_type + "'"
+        sql += " AND type = ?"
+        params.append(task_type)
     if owner:
-        sql += " AND owner = '" + owner + "'"
+        sql += " AND owner = ?"
+        params.append(owner)
     if priority_min is not None:
-        sql += " AND priority >= " + str(priority_min)
+        sql += " AND priority >= ?"
+        params.append(priority_min)
     if priority_max is not None:
-        sql += " AND priority <= " + str(priority_max)
+        sql += " AND priority <= ?"
+        params.append(priority_max)
     if sort_by:
+        if sort_by not in ALLOWED_TASK_SORT_FIELDS:
+            raise ValueError("Invalid sort field")
+        if sort_order not in {"ASC", "DESC"}:
+            raise ValueError("Invalid sort order")
         sql += " ORDER BY " + sort_by + " " + sort_order
-    sql += " LIMIT " + str(limit) + " OFFSET " + str(offset)
-    cursor.execute(sql)
+    sql += " LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
+    cursor.execute(sql, tuple(params))
     rows = cursor.fetchall()
     conn.close()
     return rows
