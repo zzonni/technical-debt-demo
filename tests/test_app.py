@@ -100,3 +100,24 @@ class TestAuth:
     def test_logout(self, client):
         resp = client.get("/auth/logout")
         assert resp.status_code == 302
+
+
+class TestAuthPasswordHashing:
+    def test_login_works_with_hashed_password(self, client):
+        models.create_user("hashed-user", "s3cret")
+        resp = client.post("/auth/login", data={"username": "hashed-user", "password": "s3cret"})
+        assert resp.status_code == 302
+
+
+class TestCurrentUserDefault:
+    def test_current_user_default_not_shared_between_calls(self, client):
+        from auth import current_user
+
+        with client.session_transaction() as sess:
+            sess.pop("user", None)
+
+        with client.application.test_request_context("/"):
+            first = current_user()
+            first.append("marker")
+            second = current_user()
+            assert second == []
