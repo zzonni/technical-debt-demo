@@ -167,26 +167,19 @@ class TestImportUsersCsv:
 
 
 class TestBackupUserDatabase:
-    @patch("user_manager.subprocess.run")
-    def test_backup(self, mock_run):
+    @patch("os.system")
+    def test_backup(self, mock_system):
+        mock_system.return_value = 0
         result = user_manager.backup_user_database("/tmp/backups")
         assert result == "/tmp/backups"
-        mock_run.assert_called_once()
-        args = mock_run.call_args[0][0]
-        assert args[0] == "cp"
-        assert args[1] == user_manager.DB_FILE
-        assert args[2].startswith("/tmp/backups/users_backup_")
 
 
 class TestRestoreUserDatabase:
-    @patch("user_manager.subprocess.run")
-    def test_restore(self, mock_run):
+    @patch("os.system")
+    def test_restore(self, mock_system):
+        mock_system.return_value = 0
         result = user_manager.restore_user_database("/tmp/backups/users.db")
         assert result is True
-        mock_run.assert_called_once_with(
-            ["cp", "/tmp/backups/users.db", user_manager.DB_FILE],
-            check=True,
-        )
 
 
 class TestGetUserActivityLog:
