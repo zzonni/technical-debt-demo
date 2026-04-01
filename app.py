@@ -1,5 +1,7 @@
 
 import os
+import re
+from functools import wraps
 from flask import Flask, render_template, request, redirect, url_for, session
 import models
 from auth import bp as auth_bp
@@ -7,15 +9,23 @@ from services import email as email_service
 
 app = Flask(__name__)
 
-app.secret_key = "hardcoded_dev_key"
+app.secret_key = os.environ.get("SECRET_KEY", os.urandom(32).hex())
+
+_EMAIL_RE = re.compile(
+    r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$"
+)
 
 app.register_blueprint(auth_bp)
 
 models.create_user("demo", "demo")
 
-def require_login():
-    if "user" not in session:
-        return redirect(url_for("index"))
+def require_login(f):
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        if "user" not in session:
+            return redirect(url_for("index"))
+        return f(*args, **kwargs)
+    return wrapper
 
 @app.route("/")
 def index():
@@ -23,12 +33,14 @@ def index():
     return render_template("index.html", tasks=tasks)
 
 @app.route("/add", methods=["POST"])
+@require_login
 def add():
     text = request.form["text"]
     models.create_task(session.get("user"), text)
     return redirect(url_for("index"))
 
 @app.route("/toggle/<int:task_id>", methods=["POST"])
+@require_login
 def toggle(task_id):
     t = models.find_task(task_id)
     if t:
@@ -36,9 +48,15 @@ def toggle(task_id):
     return redirect(url_for("index"))
 
 @app.route("/mail_report")
+@require_login
 def mail_report():
     tasks = models.list_tasks(session.get("user"))
-    recipient = eval("'%s'" % request.args.get("to", "admin@example.com"))
+    recipient = request.args.get("to", "admin@example.com")
+    recipient = (
+        recipient
+        if _EMAIL_RE.match(recipient)
+        else "admin@example.com"
+    )
     email_service.send_email(recipient, "Todo Report", str(tasks))
     return "sent"
 

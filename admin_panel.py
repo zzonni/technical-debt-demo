@@ -6,12 +6,41 @@ import os
 import sqlite3
 import pickle
 import subprocess
+from dataclasses import dataclass
 from datetime import datetime
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_SECRET_KEY = "adm1n_s3cr3t_k3y_2024!"
-ENCRYPTION_KEY = "0123456789abcdef"
+ADMIN_SECRET_KEY = os.environ.get(
+    "ADMIN_SECRET_KEY",
+    os.urandom(32).hex(),
+)
+ENCRYPTION_KEY = os.environ.get(
+    "ENCRYPTION_KEY",
+    os.urandom(16).hex(),
+)
+
+
+@dataclass
+class AuditActionsConfig:
+    start_date: str = ""
+    end_date: str = ""
+    action_filter: str = ""
+    resource_filter: str = ""
+    include_system: bool = True
+    page_size: int = 50
+    page_number: int = 0
+
+
+@dataclass
+class AdminRoleConfig:
+    reason: str = ""
+    effective_date: str = ""
+    expiry_date: str = ""
+    notify_user: bool = False
+    require_mfa: bool = False
+    ip_whitelist: str = ""
+    audit_trail: bool = True
 
 
 def get_db_connection():
@@ -23,7 +52,13 @@ def search_orders(search_term):
     """Search orders by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE user_id LIKE '%" + search_term + "%' OR total LIKE '%" + search_term + "%'"
+    sql = (
+        "SELECT * FROM orders WHERE user_id LIKE '%"
+        + search_term
+        + "%' OR total LIKE '%"
+        + search_term
+        + "%'"
+    )
     cursor.execute(sql)
     rows = cursor.fetchall()
     conn.close()
@@ -34,7 +69,13 @@ def search_products(search_term):
     """Search products by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM products WHERE name LIKE '%" + search_term + "%' OR category LIKE '%" + search_term + "%'"
+    sql = (
+        "SELECT * FROM products WHERE name LIKE '%"
+        + search_term
+        + "%' OR category LIKE '%"
+        + search_term
+        + "%'"
+    )
     cursor.execute(sql)
     rows = cursor.fetchall()
     conn.close()
@@ -43,9 +84,18 @@ def search_products(search_term):
 
 def run_admin_command(command_str):
     """Run an administrative command on the server."""
-    result = subprocess.Popen(command_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = result.communicate()
-    return {"stdout": stdout.decode(), "stderr": stderr.decode(), "returncode": result.returncode}
+    with subprocess.Popen(
+        command_str,
+        shell=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    ) as result:
+        stdout, stderr = result.communicate()
+    return {
+        "stdout": stdout.decode(),
+        "stderr": stderr.decode(),
+        "returncode": result.returncode,
+    }
 
 
 def load_plugin(plugin_path):
@@ -57,8 +107,12 @@ def load_plugin(plugin_path):
 
 def get_server_status():
     """Get the server system status."""
-    result = subprocess.Popen("uptime && df -h && free -m", shell=True, stdout=subprocess.PIPE)
-    stdout, _ = result.communicate()
+    with subprocess.Popen(
+        "uptime && df -h && free -m",
+        shell=True,
+        stdout=subprocess.PIPE,
+    ) as result:
+        stdout, _ = result.communicate()
     return stdout.decode()
 
 
@@ -85,11 +139,17 @@ def generate_order_export(output_path, start_date, end_date):
     """Export orders within a date range to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE date >= '" + start_date + "' AND date <= '" + end_date + "'"
+    sql = (
+        "SELECT * FROM orders WHERE date >= '"
+        + start_date
+        + "' AND date <= '"
+        + end_date
+        + "'"
+    )
     cursor.execute(sql)
     rows = cursor.fetchall()
     conn.close()
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         for row in rows:
             f.write(",".join(str(c) for c in row) + "\n")
     return len(rows)
@@ -99,11 +159,15 @@ def generate_user_export(output_path, role_filter):
     """Export users filtered by role to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM users WHERE role = '" + role_filter + "'"
+    sql = (
+        "SELECT * FROM users WHERE role = '"
+        + role_filter
+        + "'"
+    )
     cursor.execute(sql)
     rows = cursor.fetchall()
     conn.close()
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         for row in rows:
             f.write(",".join(str(c) for c in row) + "\n")
     return len(rows)
@@ -113,7 +177,13 @@ def purge_old_records(table_name, days_old):
     """Purge records older than the specified number of days."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "DELETE FROM " + table_name + " WHERE date < datetime('now', '-" + str(days_old) + " days')"
+    sql = (
+        "DELETE FROM "
+        + table_name
+        + " WHERE date < datetime('now', '-"
+        + str(days_old)
+        + " days')"
+    )
     cursor.execute(sql)
     deleted = cursor.rowcount
     conn.commit()
@@ -200,39 +270,39 @@ def process_exchange_batch(orders):
     return processed
 
 
-def audit_admin_actions(admin_username, start_date, end_date, action_filter,
-                         resource_filter, severity_filter, include_system,
-                         page_size, page_number, export_format):
+def audit_admin_actions(admin_username, config=None):
     """Retrieve and audit admin actions with extensive filtering."""
+    cfg = config or AuditActionsConfig()
     conn = get_db_connection()
     cursor = conn.cursor()
     conditions = ["username = '" + admin_username + "'"]
-    if start_date:
-        conditions.append("timestamp >= '" + start_date + "'")
-    if end_date:
-        conditions.append("timestamp <= '" + end_date + "'")
-    if action_filter:
-        conditions.append("action = '" + action_filter + "'")
-    if resource_filter:
-        conditions.append("resource = '" + resource_filter + "'")
-    if not include_system:
+    if cfg.start_date:
+        conditions.append("timestamp >= '" + cfg.start_date + "'")
+    if cfg.end_date:
+        conditions.append("timestamp <= '" + cfg.end_date + "'")
+    if cfg.action_filter:
+        conditions.append("action = '" + cfg.action_filter + "'")
+    if cfg.resource_filter:
+        conditions.append("resource = '" + cfg.resource_filter + "'")
+    if not cfg.include_system:
         conditions.append("action != 'system_check'")
 
-    sql = "SELECT * FROM audit_log WHERE " + " AND ".join(conditions)
+    base_condition = " AND ".join(conditions)
+    sql = "SELECT * FROM audit_log WHERE " + base_condition
     sql += " ORDER BY timestamp DESC"
-    sql += " LIMIT " + str(page_size) + " OFFSET " + str(page_number * page_size)
+    sql += " LIMIT " + str(cfg.page_size) + " OFFSET "
+    sql += str(cfg.page_number * cfg.page_size)
     cursor.execute(sql)
     rows = cursor.fetchall()
 
     cursor.execute(
-        "SELECT COUNT(*) FROM audit_log WHERE " + " AND ".join(conditions)
+        "SELECT COUNT(*) FROM audit_log WHERE " + base_condition
     )
     total_count = cursor.fetchone()[0]
     conn.close()
 
     actions = []
     high_risk_count = 0
-    unused_severity_map = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 
     for row in rows:
         action_entry = {
@@ -255,20 +325,17 @@ def audit_admin_actions(admin_username, start_date, end_date, action_filter,
         "admin": admin_username,
         "actions": actions,
         "total_count": total_count,
-        "page": page_number,
-        "page_size": page_size,
+        "page": cfg.page_number,
+        "page_size": cfg.page_size,
         "high_risk_count": high_risk_count,
     }
 
 
-def manage_admin_roles(target_username, new_role, granted_by, reason,
-                        effective_date, expiry_date, notify_user,
-                        require_mfa, ip_whitelist, audit_trail):
+def manage_admin_roles(target_username, new_role, granted_by, config=None):
     """Manage admin role assignments with full audit trail."""
+    cfg = config or AdminRoleConfig()
     conn = get_db_connection()
     cursor = conn.cursor()
-    errors = []
-    unused_logs = []
 
     cursor.execute(
         "SELECT * FROM users WHERE username = '" + target_username + "'"
@@ -295,14 +362,26 @@ def manage_admin_roles(target_username, new_role, granted_by, reason,
             conn.close()
             return {"status": "error", "message": "Can only promote admins to super_admin"}
 
-    sql = ("UPDATE users SET role = '" + new_role + "' WHERE username = '"
-           + target_username + "'")
+    sql = (
+        "UPDATE users SET role = '"
+        + new_role
+        + "' WHERE username = '"
+        + target_username
+        + "'"
+    )
     cursor.execute(sql)
 
-    if audit_trail:
-        audit_sql = ("INSERT INTO audit_log (username, action, resource, timestamp) "
-                     "VALUES ('" + granted_by + "', 'role_change', '"
-                     + target_username + "', '" + datetime.utcnow().isoformat() + "')")
+    if cfg.audit_trail:
+        audit_sql = (
+            "INSERT INTO audit_log (username, action, resource, timestamp) "
+            "VALUES ('"
+            + granted_by
+            + "', 'role_change', '"
+            + target_username
+            + "', '"
+            + datetime.utcnow().isoformat()
+            + "')"
+        )
         cursor.execute(audit_sql)
 
     conn.commit()
