@@ -39,16 +39,22 @@ jobs:
 
   sonarqube:
     name: SonarQube
-    needs: test # wait for test job to finish
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - name: Download coverage artifact # ← reuse from test job, no need to re-run
-        uses: actions/download-artifact@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          name: coverage-report
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run tests with coverage
+        run: pytest tests/ --cov=. --cov-report=xml:coverage.xml -q
 
       - name: SonarQube Scan
         uses: SonarSource/sonarqube-scan-action@v6
