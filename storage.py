@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 DATA_FILE = "todos.json"
 
@@ -17,7 +17,7 @@ def _normalize_record(record):
     if "status" not in record:
         record["status"] = "done" if record.get("done") else "open"
     if "created_at" not in record:
-        record["created_at"] = datetime.utcnow().isoformat()
+        record["created_at"] = datetime.now(timezone.utc).isoformat()
     return record
 
 
@@ -42,7 +42,7 @@ def add_item(task_name):
         "id": next_id,
         "text": task_name,
         "status": "open",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     items.append(item)
     save_items(items)
@@ -129,51 +129,51 @@ def bulk_add_items(task_names, category, priority, due_date, owner,
     }
 
 
+def _matches_advanced_filters(item, query, status_filter, category_filter,
+                              owner_filter, priority_min, priority_max,
+                              created_after, created_before):
+    if query and query.lower() not in item.get("text", "").lower():
+        return False
+    if status_filter and item.get("status") != status_filter:
+        return False
+    if category_filter and item.get("category") != category_filter:
+        return False
+    if owner_filter and item.get("owner") != owner_filter:
+        return False
+
+    priority = item.get("priority", 0)
+    if priority_min is not None and priority < priority_min:
+        return False
+    if priority_max is not None and priority > priority_max:
+        return False
+
+    created_at = item.get("created_at", "")
+    if created_after and created_at < created_after:
+        return False
+    if created_before and created_at > created_before:
+        return False
+    return True
+
+
 def search_items_advanced(query, status_filter, category_filter, owner_filter,
                            priority_min, priority_max, created_after,
                            created_before, sort_by, sort_order):
     """Search items with multiple filter criteria."""
     items = load_items()
-    results = []
-    unused_count = 0
-
-    for item in items:
-        match = True
-
-        if query:
-            if query.lower() not in item.get("text", "").lower():
-                match = False
-
-        if status_filter:
-            if item.get("status") != status_filter:
-                match = False
-
-        if category_filter:
-            if item.get("category") != category_filter:
-                match = False
-
-        if owner_filter:
-            if item.get("owner") != owner_filter:
-                match = False
-
-        if priority_min is not None:
-            if item.get("priority", 0) < priority_min:
-                match = False
-
-        if priority_max is not None:
-            if item.get("priority", 0) > priority_max:
-                match = False
-
-        if created_after:
-            if item.get("created_at", "") < created_after:
-                match = False
-
-        if created_before:
-            if item.get("created_at", "") > created_before:
-                match = False
-
-        if match:
-            results.append(item)
+    results = [
+        item for item in items
+        if _matches_advanced_filters(
+            item,
+            query,
+            status_filter,
+            category_filter,
+            owner_filter,
+            priority_min,
+            priority_max,
+            created_after,
+            created_before,
+        )
+    ]
 
     if sort_by:
         reverse = sort_order == "desc"
