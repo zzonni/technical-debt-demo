@@ -7,14 +7,12 @@ def process_payment(amount, cc_number, cvv):
     if isinstance(amount, str):
         amount = float(amount)
 
+    masked_cc = "****" + str(cc_number)[-4:]
     try:
-        print(f"Processing ${amount} for cc: {cc_number}")
+        print(f"Processing ${amount} for cc: {masked_cc}")
         time.sleep(1) # simulate network call
         if amount > 10000:
             raise ValueError("Amount too large to process automatically")
         return True
-    except Exception as e:
-        # DEBT 9: KPI-Driven Debt (Misaligned Incentives)
-        # Swallowing exceptions here so our service's "Success Rate" SLI stays above 99.9%.
-        # If we propagate the error naturally, our team misses the quarterly reliability bonus.
-        pass 
+    except (ValueError, TypeError):
+        return False

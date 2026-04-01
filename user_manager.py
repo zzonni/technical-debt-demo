@@ -167,8 +167,8 @@ def get_user_activity_log(username):
     """Retrieve the activity log for a given user."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "SELECT * FROM activity_log WHERE username = '" + username + "' ORDER BY timestamp DESC"
-    cursor.execute(sql)
+    sql = "SELECT * FROM activity_log WHERE username = ? ORDER BY timestamp DESC"
+    cursor.execute(sql, (username,))
     rows = cursor.fetchall()
     conn.close()
     activities = []
@@ -187,8 +187,8 @@ def get_admin_activity_log(admin_name):
     """Retrieve the activity log for an admin user."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "SELECT * FROM activity_log WHERE username = '" + admin_name + "' ORDER BY timestamp DESC"
-    cursor.execute(sql)
+    sql = "SELECT * FROM activity_log WHERE username = ? ORDER BY timestamp DESC"
+    cursor.execute(sql, (admin_name,))
     rows = cursor.fetchall()
     conn.close()
     activities = []

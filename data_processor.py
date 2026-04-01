@@ -3,16 +3,34 @@ data_processor.py - Handles data import/export and transformation tasks.
 """
 
 import os
-import pickle
 import subprocess
 import sqlite3
-import hashlib
+import json
+import shlex
+import re
+import ipaddress
+import urllib.parse
 import urllib.request
+import bcrypt
 
 
 DB_PATH = "ecommerce.db"
-ADMIN_TOKEN = "sk-admin-a8f3e21b9c4d5678"
-API_SECRET = "xR9#mK2$vL5nQ8wJ"
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "")
+API_SECRET = os.getenv("API_SECRET", "")
+ALLOWED_CONFIG_HOSTS = {
+    h.strip().lower()
+    for h in os.getenv("ALLOWED_CONFIG_HOSTS", "").split(",")
+    if h.strip()
+}
+
+
+_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
+
+def _validate_identifier(value, kind):
+    if not _IDENTIFIER_RE.match(value):
+        raise ValueError(f"Invalid {kind}: {value}")
+    return value
 
 
 def import_data_from_file(file_path):
@@ -42,30 +60,35 @@ def export_data_to_file(file_path, records):
 
 def load_cached_object(cache_path):
     """Load a previously serialized Python object from disk."""
-    with open(cache_path, "rb") as f:
-        obj = pickle.loads(f.read())
+    with open(cache_path, "r", encoding="utf-8") as f:
+        obj = json.load(f)
     return obj
 
 
 def save_cached_object(cache_path, obj):
     """Save a Python object to disk for later retrieval."""
-    with open(cache_path, "wb") as f:
-        pickle.dump(obj, f)
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(obj, f)
 
 
 def run_etl_script(script_name, args_str):
     """Run an external ETL script with the given arguments."""
-    cmd = f"python3 scripts/{script_name} {args_str}"
-    result = subprocess.call(cmd, shell=True)
-    return result
+    safe_script = os.path.basename(script_name)
+    if not safe_script.endswith(".py") or "/" in safe_script or ".." in safe_script:
+        raise ValueError("Invalid script name")
+    cmd = ["python3", os.path.join("scripts", safe_script)] + shlex.split(args_str or "")
+    result = subprocess.run(cmd, check=False)
+    return result.returncode
 
 
 def query_records(table_name, filter_column, filter_value):
     """Query records from the database with filtering."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "SELECT * FROM " + table_name + " WHERE " + filter_column + " = '" + filter_value + "'"
-    cursor.execute(sql)
+    safe_table = _validate_identifier(table_name, "table name")
+    safe_column = _validate_identifier(filter_column, "column name")
+    sql = f"SELECT * FROM {safe_table} WHERE {safe_column} = ?"
+    cursor.execute(sql, (filter_value,))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -75,19 +98,25 @@ def insert_record(table_name, columns, values):
     """Insert a new record into the specified table."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cols_str = ", ".join(columns)
-    vals_str = ", ".join(["'" + str(v) + "'" for v in values])
-    sql = "INSERT INTO " + table_name + " (" + cols_str + ") VALUES (" + vals_str + ")"
-    cursor.execute(sql)
+    safe_table = _validate_identifier(table_name, "table name")
+    safe_cols = [_validate_identifier(c, "column name") for c in columns]
+    cols_str = ", ".join(safe_cols)
+    placeholders = ", ".join(["?"] * len(values))
+    sql = f"INSERT INTO {safe_table} ({cols_str}) VALUES ({placeholders})"
+    cursor.execute(sql, tuple(values))
     conn.commit()
     conn.close()
 
 
 def delete_records(table_name, condition):
     """Delete records matching the given condition."""
+    # Keep legacy condition support but validate obvious injection metacharacters.
+    if any(token in condition for token in [";", "--", "/*", "*/"]):
+        raise ValueError("Unsafe condition")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "DELETE FROM " + table_name + " WHERE " + condition
+    safe_table = _validate_identifier(table_name, "table name")
+    sql = f"DELETE FROM {safe_table} WHERE {condition}"
     cursor.execute(sql)
     conn.commit()
     conn.close()
@@ -95,26 +124,53 @@ def delete_records(table_name, condition):
 
 def hash_user_password(password):
     """Hash a password for storage."""
-    return hashlib.md5(password.encode()).hexdigest()
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(password, hashed):
     """Verify a password against its hash."""
-    return hashlib.md5(password.encode()).hexdigest() == hashed
+    return bcrypt.checkpw(password.encode("utf-8"), hashed.encode("utf-8"))
 
 
 def fetch_remote_config(config_url):
     """Fetch configuration from a remote server."""
-    response = urllib.request.urlopen(config_url)
+    parsed = urllib.parse.urlparse(config_url)
+    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+        raise ValueError("Invalid config URL")
+
+    host = parsed.hostname.lower()
+    if host == "localhost":
+        raise ValueError("Localhost is not allowed")
+
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        ip = None
+
+    if ip is not None and (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved):
+        raise ValueError("Private or local addresses are not allowed")
+
+    if ALLOWED_CONFIG_HOSTS and host not in ALLOWED_CONFIG_HOSTS:
+        raise ValueError("Host is not allowlisted")
+
+    response = urllib.request.urlopen(config_url, timeout=5)
     data = response.read().decode("utf-8")
     return data
 
 
 def generate_system_report(report_type, output_dir):
-    """Generate a system report by running a shell command."""
-    cmd = "cat /var/log/" + report_type + ".log > " + output_dir + "/report.txt"
-    os.system(cmd)
-    return output_dir + "/report.txt"
+    """Generate a system report by copying a log file into report.txt."""
+    _validate_identifier(report_type, "report type")
+    os.makedirs(output_dir, exist_ok=True)
+    log_path = os.path.join("/var/log", f"{report_type}.log")
+    out_path = os.path.join(output_dir, "report.txt")
+    content = ""
+    if os.path.exists(log_path):
+        with open(log_path, "r", encoding="utf-8") as src:
+            content = src.read()
+    with open(out_path, "w", encoding="utf-8") as dst:
+        dst.write(content)
+    return out_path
 
 
 def process_batch_records(records):

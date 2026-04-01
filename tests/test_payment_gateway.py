@@ -14,7 +14,14 @@ class TestProcessPayment:
         assert result is True
 
     @patch("src.payment_gateway.time.sleep")
-    def test_large_amount_swallows_error(self, mock_sleep):
-        # amount > 10000 raises ValueError internally but is swallowed
+    def test_large_amount_returns_failure(self, mock_sleep):
         result = process_payment(20000.0, "4111111111111111", "123")
-        assert result is None
+        assert result is False
+
+    @patch("src.payment_gateway.time.sleep")
+    @patch("builtins.print")
+    def test_payment_masks_card_number_in_logs(self, mock_print, mock_sleep):
+        process_payment(10.0, "4111111111111111", "123")
+        logged = mock_print.call_args[0][0]
+        assert "4111111111111111" not in logged
+        assert "1111" in logged

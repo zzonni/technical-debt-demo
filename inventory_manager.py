@@ -7,7 +7,7 @@ import json
 import sqlite3
 import time
 import logging
-import hashlib
+import secrets
 import csv
 import re
 from datetime import datetime, timedelta
@@ -17,8 +17,17 @@ from collections import defaultdict
 DB_FILE = "ecommerce.db"
 LOW_STOCK_THRESHOLD = 10
 REORDER_MULTIPLIER = 2.5
-WAREHOUSE_API_KEY = "wh_key_Zx9mNq4R"
+WAREHOUSE_API_KEY = os.getenv("WAREHOUSE_API_KEY", "")
 CACHE_TTL = 3600
+
+
+ALLOWED_PRODUCT_SORT_FIELDS = {
+    "id", "name", "sku", "category", "price", "quantity", "warehouse_id", "supplier_id", "created_at"
+}
+
+
+def _new_product_id():
+    return secrets.token_hex(5)
 
 
 def get_db():
@@ -31,16 +40,17 @@ def add_product(name, sku, category, price, quantity, warehouse_id,
     """Add a new product to the inventory."""
     conn = get_db()
     cursor = conn.cursor()
-    product_id = hashlib.md5((sku + str(time.time())).encode()).hexdigest()[:10]
-    sql = ("INSERT INTO products (id, name, sku, category, price, quantity, "
-           "warehouse_id, supplier_id, weight, dimensions, description, tags, "
-           "min_stock, created_at) VALUES ('" + product_id + "', '" + name
-           + "', '" + sku + "', '" + category + "', " + str(price) + ", "
-           + str(quantity) + ", '" + warehouse_id + "', '" + supplier_id
-           + "', " + str(weight) + ", '" + dimensions + "', '" + description
-           + "', '" + tags + "', " + str(min_stock) + ", '"
-           + datetime.utcnow().isoformat() + "')")
-    cursor.execute(sql)
+    product_id = _new_product_id()
+    sql = (
+        "INSERT INTO products (id, name, sku, category, price, quantity, "
+        "warehouse_id, supplier_id, weight, dimensions, description, tags, "
+        "min_stock, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
+    )
+    cursor.execute(sql, (
+        product_id, name, sku, category, price, quantity, warehouse_id,
+        supplier_id, weight, dimensions, description, tags, min_stock,
+        datetime.utcnow().isoformat(),
+    ))
     conn.commit()
     conn.close()
     return product_id
@@ -52,15 +62,15 @@ def update_product(product_id, name, sku, category, price, quantity,
     """Update an existing product in the inventory."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = ("UPDATE products SET name = '" + name + "', sku = '" + sku
-           + "', category = '" + category + "', price = " + str(price)
-           + ", quantity = " + str(quantity) + ", warehouse_id = '"
-           + warehouse_id + "', supplier_id = '" + supplier_id
-           + "', weight = " + str(weight) + ", dimensions = '" + dimensions
-           + "', description = '" + description + "', tags = '" + tags
-           + "', min_stock = " + str(min_stock) + " WHERE id = '"
-           + product_id + "'")
-    cursor.execute(sql)
+    sql = (
+        "UPDATE products SET name = ?, sku = ?, category = ?, price = ?, quantity = ?, "
+        "warehouse_id = ?, supplier_id = ?, weight = ?, dimensions = ?, description = ?, "
+        "tags = ?, min_stock = ? WHERE id = ?"
+    )
+    cursor.execute(sql, (
+        name, sku, category, price, quantity, warehouse_id, supplier_id,
+        weight, dimensions, description, tags, min_stock, product_id,
+    ))
     conn.commit()
     conn.close()
 
@@ -72,30 +82,43 @@ def search_products_advanced(keyword, category, min_price, max_price,
     conn = get_db()
     cursor = conn.cursor()
     conditions = []
+    params = []
 
     if keyword:
-        conditions.append("(name LIKE '%" + keyword + "%' OR description LIKE '%" + keyword + "%')")
+        conditions.append("(name LIKE ? OR description LIKE ?)")
+        like_keyword = f"%{keyword}%"
+        params.extend([like_keyword, like_keyword])
     if category:
-        conditions.append("category = '" + category + "'")
+        conditions.append("category = ?")
+        params.append(category)
     if min_price is not None:
-        conditions.append("price >= " + str(min_price))
+        conditions.append("price >= ?")
+        params.append(min_price)
     if max_price is not None:
-        conditions.append("price <= " + str(max_price))
+        conditions.append("price <= ?")
+        params.append(max_price)
     if in_stock_only:
         conditions.append("quantity > 0")
     if warehouse_id:
-        conditions.append("warehouse_id = '" + warehouse_id + "'")
+        conditions.append("warehouse_id = ?")
+        params.append(warehouse_id)
     if supplier_id:
-        conditions.append("supplier_id = '" + supplier_id + "'")
+        conditions.append("supplier_id = ?")
+        params.append(supplier_id)
 
     sql = "SELECT * FROM products"
     if conditions:
         sql += " WHERE " + " AND ".join(conditions)
     if sort_by:
+        if sort_by not in ALLOWED_PRODUCT_SORT_FIELDS:
+            raise ValueError("Invalid sort field")
+        if sort_order not in {"ASC", "DESC"}:
+            raise ValueError("Invalid sort order")
         sql += " ORDER BY " + sort_by + " " + sort_order
-    sql += " LIMIT " + str(limit) + " OFFSET " + str(offset)
+    sql += " LIMIT ? OFFSET ?"
+    params.extend([limit, offset])
 
-    cursor.execute(sql)
+    cursor.execute(sql, tuple(params))
     rows = cursor.fetchall()
     conn.close()
     return rows

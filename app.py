@@ -2,12 +2,13 @@
 import os
 from flask import Flask, render_template, request, redirect, url_for, session
 import models
+import config
 from auth import bp as auth_bp
 from services import email as email_service
 
 app = Flask(__name__)
 
-app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
+app.secret_key = config.SECRET_KEY
 
 app.register_blueprint(auth_bp)
 
