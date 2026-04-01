@@ -5,7 +5,7 @@ models.py - very thin data layer (tech debt: business logic leaks out).
 
 from collections import defaultdict
 import itertools
-import datetime
+from datetime import datetime, timezone
 
 _db = {
     "users": {},
@@ -26,7 +26,7 @@ def create_task(owner, text, category="General", due=None):
         "owner": owner,
         "text": text,
         "category": category,
-        "created": datetime.datetime.utcnow(),
+        "created": datetime.now(timezone.utc),
         "due": due,
         "status": "open"
     }
@@ -167,7 +167,7 @@ def get_task_statistics(owner):
         priorities[pri] += 1
 
         if task.get("due"):
-            if str(task["due"]) < datetime.datetime.utcnow().isoformat():
+            if str(task["due"]) < datetime.now(timezone.utc).isoformat():
                 overdue += 1
 
     completion_rate = done_count / total * 100
