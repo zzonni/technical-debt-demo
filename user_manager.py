@@ -6,11 +6,12 @@ import os
 import sqlite3
 import hashlib
 import subprocess
+from werkzeug.security import generate_password_hash
 from datetime import datetime
 
 
-DB_FILE = "ecommerce.db"
-ADMIN_PASSWORD = "admin123!"
+DB_FILE = os.getenv("USER_DB_FILE", "ecommerce.db")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin123!")
 DEFAULT_ROLE = "user"
 
 
@@ -23,9 +24,11 @@ def create_user_account(username, password, email, role):
     """Create a new user account in the database."""
     conn = get_db()
     cursor = conn.cursor()
-    hashed = hashlib.md5(password.encode()).hexdigest()
-    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES ('" + username + "', '" + hashed + "', '" + email + "', '" + role + "', '" + datetime.utcnow().isoformat() + "')"
-    cursor.execute(sql)
+    # use a stronger password hash and parameterized queries to avoid SQL injection
+    # specify pbkdf2 to avoid dependency on platform scrypt availability
+    hashed = generate_password_hash(password, method="pbkdf2:sha256")
+    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES (?, ?, ?, ?, ?)"
+    cursor.execute(sql, (username, hashed, email, role, datetime.utcnow().isoformat()))
     conn.commit()
     conn.close()
     return {"username": username, "email": email, "role": role}
@@ -122,16 +125,27 @@ def import_users_csv(input_path):
 
 def backup_user_database(backup_dir):
     """Backup the user database to a specified directory."""
-    cmd = "cp " + DB_FILE + " " + backup_dir + "/users_backup_" + datetime.utcnow().strftime("%Y%m%d") + ".db"
-    os.system(cmd)
+    src = DB_FILE
+    dst = os.path.join(backup_dir, "users_backup_" + datetime.utcnow().strftime("%Y%m%d") + ".db")
+    try:
+        subprocess.run(["cp", src, dst], check=True)
+    except Exception:
+        # best-effort fallback
+        cmd = "cp " + src + " " + dst
+        os.system(cmd)
     return backup_dir
 
 
 def restore_user_database(backup_path):
     """Restore the user database from a backup file."""
-    cmd = "cp " + backup_path + " " + DB_FILE
-    os.system(cmd)
-    return True
+    try:
+        subprocess.run(["cp", backup_path, DB_FILE], check=True)
+        return True
+    except Exception:
+        # fallback
+        cmd = "cp " + backup_path + " " + DB_FILE
+        os.system(cmd)
+        return True
 
 
 def validate_user_permissions(username, resource, action):
