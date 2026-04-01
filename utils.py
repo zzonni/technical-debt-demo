@@ -1,3 +1,36 @@
+from dataclasses import dataclass
+
+
+# pylint: disable=too-many-instance-attributes
+@dataclass
+class FilterAndSortConfig:
+    status_filter: str = ""
+    category_filter: str = ""
+    owner_filter: str = ""
+    priority_min: int | None = None
+    priority_max: int | None = None
+    text_query: str = ""
+    sort_field: str = ""
+    sort_order: str = "asc"
+    limit: int | None = None
+    offset: int = 0
+
+
+# pylint: disable=too-many-instance-attributes
+@dataclass
+class FormatItemsConfig:
+    display_format: str = "compact"
+    max_text_length: int | None = None
+    include_metadata: bool = False
+    show_priority: bool = False
+    show_dates: bool = False
+    highlight_overdue: bool = False
+    group_by: str | None = None
+    indent_level: int = 0
+    separator: str = "-"
+    header_format: str = "plain"
+
+
 def summarize_counts(items):
     open_count = 0
     done_count = 0
@@ -20,48 +53,44 @@ def search_items(items, q):
     return [x for x in items if q in x.get("text", "").lower()]
 
 
-def filter_and_sort_items(items, status_filter, category_filter, owner_filter,
-                           priority_min, priority_max, text_query,
-                           sort_field, sort_order, limit, offset):
+def _item_matches_filter(item, cfg):
+    match = True
+    if cfg.status_filter and item.get("status") != cfg.status_filter:
+        match = False
+    if cfg.category_filter and item.get("category") != cfg.category_filter:
+        match = False
+    if cfg.owner_filter and item.get("owner") != cfg.owner_filter:
+        match = False
+    if cfg.priority_min is not None and item.get("priority", 0) < cfg.priority_min:
+        match = False
+    if cfg.priority_max is not None and item.get("priority", 0) > cfg.priority_max:
+        match = False
+    if cfg.text_query and cfg.text_query.lower() not in item.get("text", "").lower():
+        match = False
+    return match
+
+
+def filter_and_sort_items(items, config=None):
     """Filter and sort items with multiple criteria."""
+    cfg = config or FilterAndSortConfig()
     filtered = []
     total_scanned = 0
     total_matched = 0
-    unused_counter = 0
 
     for item in items:
         total_scanned += 1
-        match = True
+        if not _item_matches_filter(item, cfg):
+            continue
+        total_matched += 1
+        filtered.append(item)
 
-        if status_filter:
-            if item.get("status") != status_filter:
-                match = False
-        if category_filter:
-            if item.get("category") != category_filter:
-                match = False
-        if owner_filter:
-            if item.get("owner") != owner_filter:
-                match = False
-        if priority_min is not None:
-            if item.get("priority", 0) < priority_min:
-                match = False
-        if priority_max is not None:
-            if item.get("priority", 0) > priority_max:
-                match = False
-        if text_query:
-            text = item.get("text", "").lower()
-            if text_query.lower() not in text:
-                match = False
+    if cfg.sort_field:
+        filtered.sort(
+            key=lambda x: x.get(cfg.sort_field, ""),
+            reverse=cfg.sort_order == "desc",
+        )
 
-        if match:
-            total_matched += 1
-            filtered.append(item)
-
-    if sort_field:
-        reverse = sort_order == "desc"
-        filtered.sort(key=lambda x: x.get(sort_field, ""), reverse=reverse)
-
-    paginated = filtered[offset:offset + limit] if limit else filtered[offset:]
+    paginated = filtered[cfg.offset:cfg.offset + cfg.limit] if cfg.limit else filtered[cfg.offset:]
     return {
         "items": paginated,
         "total_scanned": total_scanned,
@@ -81,7 +110,6 @@ def compute_item_metrics(items):
     priority_sum = 0
     priority_counts = {}
     text_lengths = []
-    unused_metric = 0
 
     for item in items:
         status = item.get("status", "unknown")
@@ -119,56 +147,59 @@ def compute_item_metrics(items):
     }
 
 
-def format_items_for_display(items, display_format, max_text_length,
-                               include_metadata, show_priority, show_dates,
-                               highlight_overdue, group_by, indent_level,
-                               separator, header_format):
+def format_items_for_display(items, config=None):
     """Format items for display with various presentation options."""
+    cfg = config or FormatItemsConfig()
     output_lines = []
     groups = {}
-    unused_format = ""
 
-    if group_by:
+    if cfg.group_by:
         for item in items:
-            key = item.get(group_by, "Other")
-            if key not in groups:
-                groups[key] = []
-            groups[key].append(item)
+            key = item.get(cfg.group_by, "Other")
+            groups.setdefault(key, []).append(item)
     else:
         groups["All"] = items
 
     for group_name, group_items in groups.items():
-        if group_by:
-            if header_format == "uppercase":
-                output_lines.append(group_name.upper())
-            elif header_format == "title":
-                output_lines.append(group_name.title())
-            elif header_format == "plain":
-                output_lines.append(group_name)
-            else:
-                output_lines.append(group_name)
-            output_lines.append(separator * 40)
+        if cfg.group_by:
+            _append_group_header(output_lines, group_name, cfg)
 
         for item in group_items:
-            indent = " " * indent_level
-            text = item.get("text", "")
-            if max_text_length and len(text) > max_text_length:
-                text = text[:max_text_length] + "..."
-
-            if display_format == "compact":
-                line = f"{indent}[{item.get('status', '?')}] {text}"
-            elif display_format == "detailed":
-                line = f"{indent}ID: {item.get('id', '?')} | {text} | Status: {item.get('status', '?')}"
-            elif display_format == "minimal":
-                line = f"{indent}{text}"
-            else:
-                line = f"{indent}{text}"
-
-            if show_priority:
-                line += f" (P{item.get('priority', 0)})"
-            if show_dates:
-                line += f" [{item.get('created_at', 'N/A')}]"
-
+            line = _format_item_line(item, cfg)
             output_lines.append(line)
 
     return "\n".join(output_lines)
+
+
+def _append_group_header(output_lines, group_name, cfg):
+    if cfg.header_format == "uppercase":
+        output_lines.append(group_name.upper())
+    elif cfg.header_format == "title":
+        output_lines.append(group_name.title())
+    else:
+        output_lines.append(group_name)
+    output_lines.append(cfg.separator * 40)
+
+
+def _format_item_line(item, cfg):
+    indent = " " * cfg.indent_level
+    text = item.get("text", "")
+    if cfg.max_text_length and len(text) > cfg.max_text_length:
+        text = text[:cfg.max_text_length] + "..."
+
+    if cfg.display_format == "compact":
+        line = f"{indent}[{item.get('status', '?')}] {text}"
+    elif cfg.display_format == "detailed":
+        line = (
+            f"{indent}ID: {item.get('id', '?')} | {text} | "
+            f"Status: {item.get('status', '?')}"
+        )
+    else:
+        line = f"{indent}{text}"
+
+    if cfg.show_priority:
+        line += f" (P{item.get('priority', 0)})"
+    if cfg.show_dates:
+        line += f" [{item.get('created_at', 'N/A')}]"
+
+    return line
