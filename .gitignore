@@ -4,4 +4,8 @@ __pycache__
 coverage.xml
 
 .vscode
+
+.github/agents
+.github/skills
+
 .DS_Store
