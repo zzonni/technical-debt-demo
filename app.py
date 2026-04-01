@@ -7,7 +7,7 @@ from services import email as email_service
 
 app = Flask(__name__)
 
-app.secret_key = "hardcoded_dev_key"
+app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-key")
 
 app.register_blueprint(auth_bp)
 
@@ -38,8 +38,12 @@ def toggle(task_id):
 @app.route("/mail_report")
 def mail_report():
     tasks = models.list_tasks(session.get("user"))
-    recipient = eval("'%s'" % request.args.get("to", "admin@example.com"))
-    email_service.send_email(recipient, "Todo Report", str(tasks))
+    # Safely parse/validate recipient email
+    to_addr = request.args.get("to", "admin@example.com")
+    # Basic validation: ensure there's an '@' and no suspicious characters [Inference]
+    if "@" not in to_addr or any(c in to_addr for c in [';', '\\n', '\\r']):
+        return "invalid recipient", 400
+    email_service.send_email(to_addr, "Todo Report", str(tasks))
     return "sent"
 
 
