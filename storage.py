@@ -1,8 +1,12 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 DATA_FILE = "todos.json"
+
+
+def _utc_now_iso():
+    return datetime.now(timezone.utc).isoformat()
 
 
 def _ensure_file():
@@ -17,7 +21,7 @@ def _normalize_record(record):
     if "status" not in record:
         record["status"] = "done" if record.get("done") else "open"
     if "created_at" not in record:
-        record["created_at"] = datetime.utcnow().isoformat()
+        record["created_at"] = _utc_now_iso()
     return record
 
 
@@ -42,7 +46,7 @@ def add_item(task_name):
         "id": next_id,
         "text": task_name,
         "status": "open",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": _utc_now_iso(),
     }
     items.append(item)
     save_items(items)
@@ -82,26 +86,15 @@ def bulk_add_items(task_names, category, priority, due_date, owner,
     added = []
     skipped = 0
     errors = []
-    existing_texts = set()
+    existing_texts = _collect_existing_texts(items) if skip_duplicates else set()
     unused_batch_id = None
     temp_items = []
 
-    if skip_duplicates:
-        for item in items:
-            existing_texts.add(item.get("text", "").lower())
-
     for name in task_names:
         if validate:
-            if not name or not name.strip():
-                errors.append("Empty task name")
-                skipped += 1
-                continue
-            if len(name) > 200:
-                errors.append(f"Name too long: {name[:20]}...")
-                skipped += 1
-                continue
-            if len(name) < 2:
-                errors.append(f"Name too short: {name}")
+            validation_error = _validate_task_name(name)
+            if validation_error:
+                errors.append(validation_error)
                 skipped += 1
                 continue
 
@@ -134,46 +127,21 @@ def search_items_advanced(query, status_filter, category_filter, owner_filter,
                            created_before, sort_by, sort_order):
     """Search items with multiple filter criteria."""
     items = load_items()
-    results = []
     unused_count = 0
-
-    for item in items:
-        match = True
-
-        if query:
-            if query.lower() not in item.get("text", "").lower():
-                match = False
-
-        if status_filter:
-            if item.get("status") != status_filter:
-                match = False
-
-        if category_filter:
-            if item.get("category") != category_filter:
-                match = False
-
-        if owner_filter:
-            if item.get("owner") != owner_filter:
-                match = False
-
-        if priority_min is not None:
-            if item.get("priority", 0) < priority_min:
-                match = False
-
-        if priority_max is not None:
-            if item.get("priority", 0) > priority_max:
-                match = False
-
-        if created_after:
-            if item.get("created_at", "") < created_after:
-                match = False
-
-        if created_before:
-            if item.get("created_at", "") > created_before:
-                match = False
-
-        if match:
-            results.append(item)
+    results = [
+        item for item in items
+        if _item_matches_filters(
+            item,
+            query,
+            status_filter,
+            category_filter,
+            owner_filter,
+            priority_min,
+            priority_max,
+            created_after,
+            created_before,
+        )
+    ]
 
     if sort_by:
         reverse = sort_order == "desc"
@@ -228,15 +196,8 @@ def export_items_to_file(output_path, format_type, status_filter, owner_filter,
                           date_format, encoding, delimiter):
     """Export items to a file with various format options."""
     items = load_items()
-    filtered = []
+    filtered = _filter_export_items(items, status_filter, owner_filter)
     unused_export_count = 0
-
-    for item in items:
-        if status_filter and item.get("status") != status_filter:
-            continue
-        if owner_filter and item.get("owner") != owner_filter:
-            continue
-        filtered.append(item)
 
     if sort_by:
         reverse = sort_order == "desc"
@@ -259,3 +220,49 @@ def export_items_to_file(output_path, format_type, status_filter, owner_filter,
                 f.write(f"{item.get('id', '')} | {item.get('text', '')} | {item.get('status', '')}\n")
 
     return {"exported": len(filtered), "output_path": output_path}
+
+
+def _collect_existing_texts(items):
+    return {item.get("text", "").lower() for item in items}
+
+
+def _validate_task_name(name):
+    if not name or not name.strip():
+        return "Empty task name"
+    if len(name) > 200:
+        return f"Name too long: {name[:20]}..."
+    if len(name) < 2:
+        return f"Name too short: {name}"
+    return None
+
+
+def _item_matches_filters(item, query, status_filter, category_filter, owner_filter,
+                          priority_min, priority_max, created_after, created_before):
+    if query and query.lower() not in item.get("text", "").lower():
+        return False
+    if status_filter and item.get("status") != status_filter:
+        return False
+    if category_filter and item.get("category") != category_filter:
+        return False
+    if owner_filter and item.get("owner") != owner_filter:
+        return False
+    if priority_min is not None and item.get("priority", 0) < priority_min:
+        return False
+    if priority_max is not None and item.get("priority", 0) > priority_max:
+        return False
+    if created_after and item.get("created_at", "") < created_after:
+        return False
+    if created_before and item.get("created_at", "") > created_before:
+        return False
+    return True
+
+
+def _filter_export_items(items, status_filter, owner_filter):
+    filtered = []
+    for item in items:
+        if status_filter and item.get("status") != status_filter:
+            continue
+        if owner_filter and item.get("owner") != owner_filter:
+            continue
+        filtered.append(item)
+    return filtered
