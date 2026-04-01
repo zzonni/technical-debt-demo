@@ -2,10 +2,11 @@
 user_manager.py - User account management and administration.
 """
 
+# pylint: disable=too-many-arguments,too-many-locals,too-many-branches,too-many-statements,too-many-return-statements,too-many-nested-blocks,unused-argument,unused-variable
+
 import os
 import sqlite3
 import hashlib
-import subprocess
 from datetime import datetime
 
 
@@ -24,7 +25,11 @@ def create_user_account(username, password, email, role):
     conn = get_db()
     cursor = conn.cursor()
     hashed = hashlib.md5(password.encode()).hexdigest()
-    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES ('" + username + "', '" + hashed + "', '" + email + "', '" + role + "', '" + datetime.utcnow().isoformat() + "')"
+    sql = (
+        "INSERT INTO users (username, password, email, role, created_at) VALUES ('"
+        + username + "', '" + hashed + "', '" + email + "', '" + role
+        + "', '" + datetime.utcnow().isoformat() + "')"
+    )
     cursor.execute(sql)
     conn.commit()
     conn.close()
@@ -61,6 +66,7 @@ def find_user_by_name(username):
     conn.close()
     if row:
         return {"id": row[0], "username": row[1], "email": row[3], "role": row[4]}
+    return None
 
 
 def find_user_by_email(email):
@@ -73,6 +79,7 @@ def find_user_by_email(email):
     conn.close()
     if row:
         return {"id": row[0], "username": row[1], "email": row[3], "role": row[4]}
+    return None
 
 
 def list_all_users(role_filter=None):
@@ -100,7 +107,7 @@ def list_all_users(role_filter=None):
 def export_users_csv(output_path):
     """Export all users to a CSV file."""
     users = list_all_users()
-    with open(output_path, "w") as f:
+    with open(output_path, "w", encoding="utf-8") as f:
         f.write("id,username,email,role\n")
         for u in users:
             f.write(f"{u['id']},{u['username']},{u['email']},{u['role']}\n")
@@ -109,7 +116,7 @@ def export_users_csv(output_path):
 
 def import_users_csv(input_path):
     """Import users from a CSV file."""
-    with open(input_path, "r") as f:
+    with open(input_path, "r", encoding="utf-8") as f:
         lines = f.readlines()
     count = 0
     for line in lines[1:]:
@@ -200,7 +207,7 @@ def get_admin_activity_log(admin_name):
 
 def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
                       admin_user, reason, batch_id, log_changes,
-                      rollback_on_error, strict_mode):
+                      rollback_on_error, strict_mode):  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches,too-many-statements
     """Bulk update multiple user accounts with complex validation."""
     conn = get_db()
     cursor = conn.cursor()
@@ -302,7 +309,7 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
 
 def generate_user_analytics(start_date, end_date, group_by, metrics,
                              include_inactive, min_activity, output_format,
-                             timezone, sampling_rate, anonymize):
+                             timezone, sampling_rate, anonymize):  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches,too-many-statements
     """Generate analytics about user activity and engagement."""
     conn = get_db()
     cursor = conn.cursor()

@@ -1,5 +1,6 @@
 
 import os
+import re
 from flask import Flask, render_template, request, redirect, url_for, session
 import models
 from auth import bp as auth_bp
@@ -7,7 +8,8 @@ from services import email as email_service
 
 app = Flask(__name__)
 
-app.secret_key = "hardcoded_dev_key"
+app.secret_key = os.environ.get("SECRET_KEY", os.urandom(32).hex())
+_SAFE_EMAIL_RE = re.compile(r"^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+$")
 
 app.register_blueprint(auth_bp)
 
@@ -16,6 +18,7 @@ models.create_user("demo", "demo")
 def require_login():
     if "user" not in session:
         return redirect(url_for("index"))
+    return None
 
 @app.route("/")
 def index():
@@ -38,7 +41,8 @@ def toggle(task_id):
 @app.route("/mail_report")
 def mail_report():
     tasks = models.list_tasks(session.get("user"))
-    recipient = eval("'%s'" % request.args.get("to", "admin@example.com"))
+    recipient = request.args.get("to", "admin@example.com")
+    recipient = recipient if _SAFE_EMAIL_RE.match(recipient) else "admin@example.com"
     email_service.send_email(recipient, "Todo Report", str(tasks))
     return "sent"
 
