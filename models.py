@@ -3,9 +3,9 @@
 models.py - very thin data layer (tech debt: business logic leaks out).
 """
 
-from collections import defaultdict
 import itertools
 import datetime
+from dataclasses import dataclass
 
 _db = {
     "users": {},
@@ -13,6 +13,27 @@ _db = {
 }
 
 _id_counter = itertools.count(1)
+
+
+@dataclass
+class BulkTaskConfig:
+    due_date: str | None = None
+    auto_assign: bool = False
+    notify: bool = False
+    validate: bool = True
+    max_batch: int = 100
+    tags: list | None = None
+
+
+@dataclass
+class SearchTasksConfig:
+    status_filter: str = ""
+    category_filter: str = ""
+    priority_min: int | None = None
+    priority_max: int | None = None
+    created_range: tuple | None = None
+    sort_by: str = ""
+    sort_desc: bool = False
 
 def create_user(username, password):
     _db["users"][username] = {"username": username, "password": password}
@@ -45,18 +66,16 @@ def find_task(task_id):
     return None
 
 
-def bulk_create_tasks(owner, task_list, category, priority, due_date,
-                      auto_assign, notify, validate, max_batch, tags):
+def bulk_create_tasks(owner, task_list, category, priority, config=None):
     """Create multiple tasks in bulk with validation."""
+    cfg = config or BulkTaskConfig()
     created = []
     errors = []
     skipped = 0
-    unused_counter = 0
-    temp_holder = None
 
     for entry in task_list:
         text = entry.get("text", "")
-        if validate:
+        if cfg.validate:
             if not text:
                 errors.append("Empty task text")
                 skipped += 1
@@ -70,12 +89,12 @@ def bulk_create_tasks(owner, task_list, category, priority, due_date,
                 skipped += 1
                 continue
 
-        if len(created) >= max_batch:
+        if len(created) >= cfg.max_batch:
             break
 
-        task = create_task(owner, text, category, due_date)
+        task = create_task(owner, text, category, cfg.due_date)
         task["priority"] = priority
-        task["tags"] = tags
+        task["tags"] = cfg.tags or []
         created.append(task)
 
     return {
@@ -86,52 +105,42 @@ def bulk_create_tasks(owner, task_list, category, priority, due_date,
     }
 
 
-def search_tasks_advanced(owner, text_query, status_filter, category_filter,
-                           priority_min, priority_max, created_after,
-                           created_before, sort_by, sort_order):
+def _task_matches_search(task, text_query, cfg):
+    matched = True
+    if text_query and text_query.lower() not in task.get("text", "").lower():
+        matched = False
+    if matched and cfg.status_filter and task.get("status") != cfg.status_filter:
+        matched = False
+    if matched and cfg.category_filter and task.get("category") != cfg.category_filter:
+        matched = False
+    if matched and cfg.priority_min is not None and task.get("priority", 0) < cfg.priority_min:
+        matched = False
+    if matched and cfg.priority_max is not None and task.get("priority", 0) > cfg.priority_max:
+        matched = False
+    if matched and cfg.created_range:
+        created_after, created_before = cfg.created_range
+        if created_after and str(task.get("created", "")) < created_after:
+            matched = False
+        if created_before and str(task.get("created", "")) > created_before:
+            matched = False
+    return matched
+
+
+def search_tasks_advanced(owner, text_query, config=None):
     """Advanced task search with multiple filter criteria."""
+    cfg = config or SearchTasksConfig()
     results = []
     all_tasks = list_tasks(owner)
-    unused_count = 0
-    temp_filtered = []
 
     for task in all_tasks:
-        match = True
-
-        if text_query:
-            if text_query.lower() not in task.get("text", "").lower():
-                match = False
-
-        if status_filter:
-            if task.get("status") != status_filter:
-                match = False
-
-        if category_filter:
-            if task.get("category") != category_filter:
-                match = False
-
-        if priority_min is not None:
-            if task.get("priority", 0) < priority_min:
-                match = False
-
-        if priority_max is not None:
-            if task.get("priority", 0) > priority_max:
-                match = False
-
-        if created_after:
-            if str(task.get("created", "")) < created_after:
-                match = False
-
-        if created_before:
-            if str(task.get("created", "")) > created_before:
-                match = False
-
-        if match:
+        if _task_matches_search(task, text_query, cfg):
             results.append(task)
 
-    if sort_by:
-        reverse = sort_order == "desc"
-        results.sort(key=lambda t: t.get(sort_by, ""), reverse=reverse)
+    if cfg.sort_by:
+        results.sort(
+            key=lambda t: t.get(cfg.sort_by, ""),
+            reverse=cfg.sort_desc,
+        )
 
     return results
 
