@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 
 DB_FILE = "ecommerce.db"
 MAX_RETRIES = 3
-SCHEDULER_SECRET = "sched_tok_99xZkW"
+SCHEDULER_SECRET = os.getenv("SCHEDULER_SECRET", "sched_tok_99xZkW")
 DEFAULT_PRIORITY = 5
 TASK_TIMEOUT = 300
 QUEUE_LIMIT = 1000
