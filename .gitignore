@@ -5,8 +5,8 @@ coverage.xml
 
 .vscode
 
-.github/agents
-.github/skills
+.github/*
+!.github/workflows
 
 .DS_Store
 

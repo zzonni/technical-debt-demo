@@ -321,29 +321,13 @@ def aggregate_data_by_field(records, group_field, agg_field, agg_func,
             skipped += 1
             continue
 
-        key = rec.get(group_field, "unknown")
-        if key not in groups:
-            groups[key] = []
-        groups[key].append(rec.get(agg_field, 0))
+        _append_to_group(groups, rec, group_field, agg_field)
 
     result = {}
-    for key in groups:
-        values = groups[key]
+    for key, values in groups.items():
         if not values and not include_empty:
             continue
-
-        if agg_func == "sum":
-            agg_value = sum(values)
-        elif agg_func == "avg":
-            agg_value = sum(values) / len(values) if values else 0
-        elif agg_func == "min":
-            agg_value = min(values) if values else 0
-        elif agg_func == "max":
-            agg_value = max(values) if values else 0
-        elif agg_func == "count":
-            agg_value = len(values)
-        else:
-            agg_value = sum(values)
+        agg_value = _aggregate_values(values, agg_func)
 
         result[key] = {
             "value": round(agg_value, decimal_places),
@@ -362,3 +346,24 @@ def aggregate_data_by_field(records, group_field, agg_field, agg_func,
         "skipped": skipped,
         "group_count": len(result),
     }
+
+
+def _append_to_group(groups, rec, group_field, agg_field):
+    key = rec.get(group_field, "unknown")
+    if key not in groups:
+        groups[key] = []
+    groups[key].append(rec.get(agg_field, 0))
+
+
+def _aggregate_values(values, agg_func):
+    if agg_func == "sum":
+        return sum(values)
+    if agg_func == "avg":
+        return sum(values) / len(values) if values else 0
+    if agg_func == "min":
+        return min(values) if values else 0
+    if agg_func == "max":
+        return max(values) if values else 0
+    if agg_func == "count":
+        return len(values)
+    return sum(values)
