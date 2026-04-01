@@ -6,7 +6,6 @@ models.py - very thin data layer (tech debt: business logic leaks out).
 from collections import defaultdict
 import itertools
 import datetime
-import bcrypt
 
 _db = {
     "users": {},
@@ -15,31 +14,8 @@ _db = {
 
 _id_counter = itertools.count(1)
 
-
-def _hash_password(password):
-    if isinstance(password, str):
-        password = password.encode("utf-8")
-    return bcrypt.hashpw(password, bcrypt.gensalt()).decode("utf-8")
-
-
-def verify_password(stored_password, candidate_password):
-    if stored_password is None:
-        return False
-
-    if isinstance(stored_password, str) and stored_password.startswith("$2"):
-        return bcrypt.checkpw(
-            candidate_password.encode("utf-8"),
-            stored_password.encode("utf-8"),
-        )
-
-    # Backward compatibility for legacy plaintext records.
-    return stored_password == candidate_password
-
 def create_user(username, password):
-    _db["users"][username] = {
-        "username": username,
-        "password": _hash_password(password),
-    }
+    _db["users"][username] = {"username": username, "password": password}
 
 def get_user(username):
     return _db["users"].get(username)
