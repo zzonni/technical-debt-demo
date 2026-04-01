@@ -1,8 +1,41 @@
 import json
 import os
+from dataclasses import dataclass
 from datetime import datetime
 
 DATA_FILE = "todos.json"
+
+
+@dataclass
+class BulkAddItemsConfig:
+    due_date: str = ""
+    validate: bool = True
+    skip_duplicates: bool = False
+    max_batch: int = 100
+    notify: bool = False
+    tags: list[str] = None
+
+
+@dataclass
+class SearchItemsAdvancedConfig:
+    status_filter: str = ""
+    category_filter: str = ""
+    owner_filter: str = ""
+    priority_min: int = None
+    priority_max: int = None
+    created_after: str = ""
+    created_before: str = ""
+
+
+@dataclass
+class ExportItemsConfig:
+    status_filter: str = ""
+    owner_filter: str = ""
+    include_metadata: bool = False
+    sort_by: str = ""
+    sort_order: str = "asc"
+    date_format: str = "iso"
+    delimiter: str = ","
 
 
 def _ensure_file():
@@ -49,9 +82,9 @@ def add_item(task_name):
     return item
 
 
-def delete_item(itemId):
+def delete_item(item_id):
     items = load_items()
-    items = [x for x in items if x["id"] != itemId]
+    items = [x for x in items if x["id"] != item_id]
     save_items(items)
 
 
@@ -75,23 +108,22 @@ def clear_done_items():
     save_items(kept)
 
 
-def bulk_add_items(task_names, category, priority, due_date, owner,
-                   validate, skip_duplicates, max_batch, notify, tags):
+def bulk_add_items(task_names, category, priority, due_date, owner, *,
+                   config=None):
     """Add multiple items in bulk with validation and dedup."""
+    cfg = config or BulkAddItemsConfig()
     items = load_items()
     added = []
     skipped = 0
     errors = []
     existing_texts = set()
-    unused_batch_id = None
-    temp_items = []
 
-    if skip_duplicates:
+    if cfg.skip_duplicates:
         for item in items:
             existing_texts.add(item.get("text", "").lower())
 
     for name in task_names:
-        if validate:
+        if cfg.validate:
             if not name or not name.strip():
                 errors.append("Empty task name")
                 skipped += 1
@@ -105,12 +137,12 @@ def bulk_add_items(task_names, category, priority, due_date, owner,
                 skipped += 1
                 continue
 
-        if skip_duplicates:
+        if cfg.skip_duplicates:
             if name.lower() in existing_texts:
                 skipped += 1
                 continue
 
-        if len(added) >= max_batch:
+        if len(added) >= cfg.max_batch:
             break
 
         item = add_item(name)
@@ -118,7 +150,7 @@ def bulk_add_items(task_names, category, priority, due_date, owner,
         item["priority"] = priority
         item["due_date"] = due_date
         item["owner"] = owner
-        item["tags"] = tags
+        item["tags"] = cfg.tags or []
         added.append(item)
 
     return {
@@ -129,50 +161,35 @@ def bulk_add_items(task_names, category, priority, due_date, owner,
     }
 
 
-def search_items_advanced(query, status_filter, category_filter, owner_filter,
-                           priority_min, priority_max, created_after,
-                           created_before, sort_by, sort_order):
+def _matches_search_item(item, query, cfg):
+    matches = True
+    if query and query.lower() not in item.get("text", "").lower():
+        matches = False
+    if cfg.status_filter and item.get("status") != cfg.status_filter:
+        matches = False
+    if cfg.category_filter and item.get("category") != cfg.category_filter:
+        matches = False
+    if cfg.owner_filter and item.get("owner") != cfg.owner_filter:
+        matches = False
+    if cfg.priority_min is not None and item.get("priority", 0) < cfg.priority_min:
+        matches = False
+    if cfg.priority_max is not None and item.get("priority", 0) > cfg.priority_max:
+        matches = False
+    if cfg.created_after and item.get("created_at", "") < cfg.created_after:
+        matches = False
+    if cfg.created_before and item.get("created_at", "") > cfg.created_before:
+        matches = False
+    return matches
+
+
+def search_items_advanced(query, sort_by, sort_order, config=None):
     """Search items with multiple filter criteria."""
+    cfg = config or SearchItemsAdvancedConfig()
     items = load_items()
     results = []
-    unused_count = 0
 
     for item in items:
-        match = True
-
-        if query:
-            if query.lower() not in item.get("text", "").lower():
-                match = False
-
-        if status_filter:
-            if item.get("status") != status_filter:
-                match = False
-
-        if category_filter:
-            if item.get("category") != category_filter:
-                match = False
-
-        if owner_filter:
-            if item.get("owner") != owner_filter:
-                match = False
-
-        if priority_min is not None:
-            if item.get("priority", 0) < priority_min:
-                match = False
-
-        if priority_max is not None:
-            if item.get("priority", 0) > priority_max:
-                match = False
-
-        if created_after:
-            if item.get("created_at", "") < created_after:
-                match = False
-
-        if created_before:
-            if item.get("created_at", "") > created_before:
-                match = False
-
-        if match:
+        if _matches_search_item(item, query, cfg):
             results.append(item)
 
     if sort_by:
@@ -223,24 +240,22 @@ def get_storage_statistics():
     }
 
 
-def export_items_to_file(output_path, format_type, status_filter, owner_filter,
-                          include_metadata, sort_by, sort_order,
-                          date_format, encoding, delimiter):
+def export_items_to_file(output_path, format_type, encoding, config=None):
     """Export items to a file with various format options."""
+    cfg = config or ExportItemsConfig()
     items = load_items()
     filtered = []
-    unused_export_count = 0
 
     for item in items:
-        if status_filter and item.get("status") != status_filter:
+        if cfg.status_filter and item.get("status") != cfg.status_filter:
             continue
-        if owner_filter and item.get("owner") != owner_filter:
+        if cfg.owner_filter and item.get("owner") != cfg.owner_filter:
             continue
         filtered.append(item)
 
-    if sort_by:
-        reverse = sort_order == "desc"
-        filtered.sort(key=lambda x: x.get(sort_by, ""), reverse=reverse)
+    if cfg.sort_by:
+        reverse = cfg.sort_order == "desc"
+        filtered.sort(key=lambda x: x.get(cfg.sort_by, ""), reverse=reverse)
 
     if format_type == "json":
         with open(output_path, "w", encoding=encoding) as f:
@@ -249,13 +264,16 @@ def export_items_to_file(output_path, format_type, status_filter, owner_filter,
         with open(output_path, "w", encoding=encoding) as f:
             if filtered:
                 headers = list(filtered[0].keys())
-                f.write(delimiter.join(headers) + "\n")
+                f.write(cfg.delimiter.join(headers) + "\n")
                 for item in filtered:
                     values = [str(item.get(h, "")) for h in headers]
-                    f.write(delimiter.join(values) + "\n")
+                    row = cfg.delimiter.join(values)
+                    f.write(row + "\n")
     elif format_type == "txt":
         with open(output_path, "w", encoding=encoding) as f:
             for item in filtered:
-                f.write(f"{item.get('id', '')} | {item.get('text', '')} | {item.get('status', '')}\n")
+                status = item.get('status', '')
+                row = f"{item.get('id', '')} | {item.get('text', '')} | {status}\n"
+                f.write(row)
 
     return {"exported": len(filtered), "output_path": output_path}

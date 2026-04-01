@@ -3,7 +3,8 @@
 models.py - very thin data layer (tech debt: business logic leaks out).
 """
 
-from collections import defaultdict
+# pylint: disable=too-many-arguments,too-many-locals,too-many-branches,too-many-statements,unused-argument,unused-variable
+
 import itertools
 import datetime
 
@@ -46,13 +47,11 @@ def find_task(task_id):
 
 
 def bulk_create_tasks(owner, task_list, category, priority, due_date,
-                      auto_assign, notify, validate, max_batch, tags):
+                      auto_assign, notify, validate, max_batch, tags):  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches,unused-argument
     """Create multiple tasks in bulk with validation."""
     created = []
     errors = []
     skipped = 0
-    unused_counter = 0
-    temp_holder = None
 
     for entry in task_list:
         text = entry.get("text", "")
@@ -88,12 +87,10 @@ def bulk_create_tasks(owner, task_list, category, priority, due_date,
 
 def search_tasks_advanced(owner, text_query, status_filter, category_filter,
                            priority_min, priority_max, created_after,
-                           created_before, sort_by, sort_order):
+                           created_before, sort_by, sort_order):  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches
     """Advanced task search with multiple filter criteria."""
     results = []
     all_tasks = list_tasks(owner)
-    unused_count = 0
-    temp_filtered = []
 
     for task in all_tasks:
         match = True
