@@ -14,12 +14,23 @@ class TestCreateUser:
     def test_creates_user(self):
         models.create_user("alice", "pass123")
         assert "alice" in models._db["users"]
-        assert models._db["users"]["alice"]["password"] == "pass123"
+        stored = models._db["users"]["alice"]["password"]
+        assert stored != "pass123"
+        assert stored.startswith("$2")
+        assert models.verify_password(stored, "pass123")
 
     def test_overwrites_existing_user(self):
         models.create_user("alice", "old")
         models.create_user("alice", "new")
-        assert models._db["users"]["alice"]["password"] == "new"
+        stored = models._db["users"]["alice"]["password"]
+        assert stored != "new"
+        assert models.verify_password(stored, "new")
+
+
+class TestVerifyPassword:
+    def test_verify_password_supports_legacy_plaintext(self):
+        assert models.verify_password("legacy", "legacy") is True
+        assert models.verify_password("legacy", "wrong") is False
 
 
 class TestGetUser:
