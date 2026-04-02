@@ -37,7 +37,7 @@ class TestHashUserPassword:
     def test_hash(self):
         h = data_processor.hash_user_password("secret")
         assert isinstance(h, str)
-        assert len(h) == 32
+        assert len(h) == 64
 
     def test_same_password_same_hash(self):
         h1 = data_processor.hash_user_password("test")
@@ -145,7 +145,7 @@ class TestRunEtlScript:
 
 class TestLoadCachedObject:
     @patch("builtins.open", mock_open(read_data=b""))
-    @patch("pickle.loads")
+    @patch("pickle.load")
     def test_load(self, mock_pickle):
         mock_pickle.return_value = {"key": "value"}
         result = data_processor.load_cached_object("/tmp/cache.pkl")
@@ -172,11 +172,14 @@ class TestFetchRemoteConfig:
 
 
 class TestGenerateSystemReport:
-    @patch("os.system")
-    def test_generate(self, mock_system):
-        mock_system.return_value = 0
-        result = data_processor.generate_system_report("access", "/tmp")
-        assert result == "/tmp/report.txt"
+    def test_generate(self, tmp_path):
+        log_dir = tmp_path / "logs"
+        log_dir.mkdir()
+        (log_dir / "access.log").write_text("log content")
+        with patch.dict("os.environ", {"LOG_DIR": str(log_dir)}):
+            result = data_processor.generate_system_report("access", str(tmp_path))
+        assert result == str(tmp_path / "report.txt")
+        assert (tmp_path / "report.txt").read_text() == "log content"
 
 
 class TestValidateAndTransformRecords:
