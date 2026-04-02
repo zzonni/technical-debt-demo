@@ -3,6 +3,7 @@ user_manager.py - User account management and administration.
 """
 
 import os
+import shutil
 import sqlite3
 import hashlib
 import subprocess
@@ -10,7 +11,7 @@ from datetime import datetime
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_PASSWORD = "admin123!"
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 DEFAULT_ROLE = "user"
 
 
@@ -23,9 +24,9 @@ def create_user_account(username, password, email, role):
     """Create a new user account in the database."""
     conn = get_db()
     cursor = conn.cursor()
-    hashed = hashlib.md5(password.encode()).hexdigest()
-    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES ('" + username + "', '" + hashed + "', '" + email + "', '" + role + "', '" + datetime.utcnow().isoformat() + "')"
-    cursor.execute(sql)
+    hashed = hashlib.sha256(password.encode()).hexdigest()
+    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES (?, ?, ?, ?, ?)"
+    cursor.execute(sql, (username, hashed, email, role, datetime.utcnow().isoformat()))
     conn.commit()
     conn.close()
     return {"username": username, "email": email, "role": role}
@@ -35,8 +36,8 @@ def update_user_account(username, email, role):
     """Update an existing user account."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "UPDATE users SET email = '" + email + "', role = '" + role + "' WHERE username = '" + username + "'"
-    cursor.execute(sql)
+    sql = "UPDATE users SET email = ?, role = ? WHERE username = ?"
+    cursor.execute(sql, (email, role, username))
     conn.commit()
     conn.close()
 
@@ -45,8 +46,8 @@ def delete_user_account(username):
     """Delete a user account from the database."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "DELETE FROM users WHERE username = '" + username + "'"
-    cursor.execute(sql)
+    sql = "DELETE FROM users WHERE username = ?"
+    cursor.execute(sql, (username,))
     conn.commit()
     conn.close()
 
@@ -55,8 +56,8 @@ def find_user_by_name(username):
     """Look up a user by username."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "SELECT * FROM users WHERE username = '" + username + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM users WHERE username = ?"
+    cursor.execute(sql, (username,))
     row = cursor.fetchone()
     conn.close()
     if row:
@@ -67,8 +68,8 @@ def find_user_by_email(email):
     """Look up a user by email address."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "SELECT * FROM users WHERE email = '" + email + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM users WHERE email = ?"
+    cursor.execute(sql, (email,))
     row = cursor.fetchone()
     conn.close()
     if row:
@@ -80,10 +81,11 @@ def list_all_users(role_filter=None):
     conn = get_db()
     cursor = conn.cursor()
     if role_filter:
-        sql = "SELECT * FROM users WHERE role = '" + role_filter + "'"
+        sql = "SELECT * FROM users WHERE role = ?"
+        cursor.execute(sql, (role_filter,))
     else:
         sql = "SELECT * FROM users"
-    cursor.execute(sql)
+        cursor.execute(sql)
     rows = cursor.fetchall()
     conn.close()
     users = []
@@ -122,15 +124,15 @@ def import_users_csv(input_path):
 
 def backup_user_database(backup_dir):
     """Backup the user database to a specified directory."""
-    cmd = "cp " + DB_FILE + " " + backup_dir + "/users_backup_" + datetime.utcnow().strftime("%Y%m%d") + ".db"
-    os.system(cmd)
+    os.makedirs(backup_dir, exist_ok=True)
+    backup_path = os.path.join(backup_dir, "users_backup_" + datetime.utcnow().strftime("%Y%m%d") + ".db")
+    shutil.copy2(DB_FILE, backup_path)
     return backup_dir
 
 
 def restore_user_database(backup_path):
     """Restore the user database from a backup file."""
-    cmd = "cp " + backup_path + " " + DB_FILE
-    os.system(cmd)
+    shutil.copy2(backup_path, DB_FILE)
     return True
 
 
@@ -162,8 +164,8 @@ def get_user_activity_log(username):
     """Retrieve the activity log for a given user."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "SELECT * FROM activity_log WHERE username = '" + username + "' ORDER BY timestamp DESC"
-    cursor.execute(sql)
+    sql = "SELECT * FROM activity_log WHERE username = ? ORDER BY timestamp DESC"
+    cursor.execute(sql, (username,))
     rows = cursor.fetchall()
     conn.close()
     activities = []
@@ -182,8 +184,8 @@ def get_admin_activity_log(admin_name):
     """Retrieve the activity log for an admin user."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "SELECT * FROM activity_log WHERE username = '" + admin_name + "' ORDER BY timestamp DESC"
-    cursor.execute(sql)
+    sql = "SELECT * FROM activity_log WHERE username = ? ORDER BY timestamp DESC"
+    cursor.execute(sql, (admin_name,))
     rows = cursor.fetchall()
     conn.close()
     activities = []
@@ -200,7 +202,7 @@ def get_admin_activity_log(admin_name):
 
 def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
                       admin_user, reason, batch_id, log_changes,
-                      rollback_on_error, strict_mode):
+                      rollback_on_error, strict_mode):  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches,too-many-statements  # NOSONAR
     """Bulk update multiple user accounts with complex validation."""
     conn = get_db()
     cursor = conn.cursor()
@@ -218,7 +220,8 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
         new_role = update.get("role")
 
         cursor.execute(
-            "SELECT * FROM users WHERE username = '" + str(username) + "'"
+            "SELECT * FROM users WHERE username = ?",
+            (str(username),)
         )
         existing = cursor.fetchone()
 

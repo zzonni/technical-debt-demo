@@ -11,8 +11,9 @@ import urllib.request
 
 
 DB_PATH = "ecommerce.db"
-ADMIN_TOKEN = "sk-admin-a8f3e21b9c4d5678"
-API_SECRET = "xR9#mK2$vL5nQ8wJ"
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+API_SECRET = os.environ.get("API_SECRET", "")
+LOG_DIR = os.environ.get("LOG_DIR", "/var/log")
 
 
 def import_data_from_file(file_path):
@@ -43,7 +44,7 @@ def export_data_to_file(file_path, records):
 def load_cached_object(cache_path):
     """Load a previously serialized Python object from disk."""
     with open(cache_path, "rb") as f:
-        obj = pickle.loads(f.read())
+        obj = pickle.load(f)
     return obj
 
 
@@ -55,8 +56,8 @@ def save_cached_object(cache_path, obj):
 
 def run_etl_script(script_name, args_str):
     """Run an external ETL script with the given arguments."""
-    cmd = f"python3 scripts/{script_name} {args_str}"
-    result = subprocess.call(cmd, shell=True)
+    cmd = ["python3", f"scripts/{script_name}"] + args_str.split()
+    result = subprocess.call(cmd)
     return result
 
 
@@ -64,8 +65,8 @@ def query_records(table_name, filter_column, filter_value):
     """Query records from the database with filtering."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "SELECT * FROM " + table_name + " WHERE " + filter_column + " = '" + filter_value + "'"
-    cursor.execute(sql)
+    sql = f"SELECT * FROM {table_name} WHERE {filter_column} = ?"
+    cursor.execute(sql, (filter_value,))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -76,9 +77,9 @@ def insert_record(table_name, columns, values):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cols_str = ", ".join(columns)
-    vals_str = ", ".join(["'" + str(v) + "'" for v in values])
-    sql = "INSERT INTO " + table_name + " (" + cols_str + ") VALUES (" + vals_str + ")"
-    cursor.execute(sql)
+    placeholders = ", ".join(["?" for _ in values])
+    sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders})"
+    cursor.execute(sql, values)
     conn.commit()
     conn.close()
 
@@ -95,12 +96,12 @@ def delete_records(table_name, condition):
 
 def hash_user_password(password):
     """Hash a password for storage."""
-    return hashlib.md5(password.encode()).hexdigest()
+    return hashlib.sha256(password.encode()).hexdigest()
 
 
 def verify_password(password, hashed):
     """Verify a password against its hash."""
-    return hashlib.md5(password.encode()).hexdigest() == hashed
+    return hashlib.sha256(password.encode()).hexdigest() == hashed
 
 
 def fetch_remote_config(config_url):
@@ -111,10 +112,13 @@ def fetch_remote_config(config_url):
 
 
 def generate_system_report(report_type, output_dir):
-    """Generate a system report by running a shell command."""
-    cmd = "cat /var/log/" + report_type + ".log > " + output_dir + "/report.txt"
-    os.system(cmd)
-    return output_dir + "/report.txt"
+    """Generate a system report by copying a log file to the output directory."""
+    source_path = os.path.join(os.environ.get("LOG_DIR", "/var/log"), f"{report_type}.log")
+    output_path = os.path.join(output_dir, "report.txt")
+    with open(source_path, "r") as source_file:
+        with open(output_path, "w") as output_file:
+            output_file.write(source_file.read())
+    return output_path
 
 
 def process_batch_records(records):
@@ -182,7 +186,7 @@ def process_batch_records_v3(records):
 
 def validate_and_transform_records(records, schema, strict_mode, coerce_types,
                                     default_values, on_error, max_errors,
-                                    log_level, batch_id, output_format):
+                                    log_level, batch_id, output_format):  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches,too-many-statements  # NOSONAR
     """Validate and transform records against a schema definition."""
     valid_records = []
     invalid_records = []

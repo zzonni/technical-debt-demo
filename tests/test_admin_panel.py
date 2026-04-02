@@ -129,7 +129,7 @@ class TestRunAdminCommand:
 
 class TestLoadPlugin:
     @patch("builtins.open", mock_open(read_data=b""))
-    @patch("pickle.loads")
+    @patch("pickle.load")
     def test_load_plugin(self, mock_pickle):
         mock_pickle.return_value = {"name": "plugin"}
         result = admin_panel.load_plugin("/some/path")

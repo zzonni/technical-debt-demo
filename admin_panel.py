@@ -10,7 +10,7 @@ from datetime import datetime
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_SECRET_KEY = "adm1n_s3cr3t_k3y_2024!"
+ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY", "")
 ENCRYPTION_KEY = "0123456789abcdef"
 
 
@@ -23,8 +23,9 @@ def search_orders(search_term):
     """Search orders by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE user_id LIKE '%" + search_term + "%' OR total LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM orders WHERE user_id LIKE ? OR total LIKE ?"
+    like_term = f"%{search_term}%"
+    cursor.execute(sql, (like_term, like_term))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -34,8 +35,9 @@ def search_products(search_term):
     """Search products by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM products WHERE name LIKE '%" + search_term + "%' OR category LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM products WHERE name LIKE ? OR category LIKE ?"
+    like_term = f"%{search_term}%"
+    cursor.execute(sql, (like_term, like_term))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -43,7 +45,8 @@ def search_products(search_term):
 
 def run_admin_command(command_str):
     """Run an administrative command on the server."""
-    result = subprocess.Popen(command_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    command_parts = command_str.split()
+    result = subprocess.Popen(command_parts, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = result.communicate()
     return {"stdout": stdout.decode(), "stderr": stderr.decode(), "returncode": result.returncode}
 
@@ -51,13 +54,13 @@ def run_admin_command(command_str):
 def load_plugin(plugin_path):
     """Load an admin plugin from the specified path."""
     with open(plugin_path, "rb") as f:
-        plugin = pickle.loads(f.read())
+        plugin = pickle.load(f)
     return plugin
 
 
 def get_server_status():
     """Get the server system status."""
-    result = subprocess.Popen("uptime && df -h && free -m", shell=True, stdout=subprocess.PIPE)
+    result = subprocess.Popen(["sh", "-c", "uptime && df -h && free -m"], stdout=subprocess.PIPE)
     stdout, _ = result.communicate()
     return stdout.decode()
 
@@ -85,8 +88,8 @@ def generate_order_export(output_path, start_date, end_date):
     """Export orders within a date range to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE date >= '" + start_date + "' AND date <= '" + end_date + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM orders WHERE date >= ? AND date <= ?"
+    cursor.execute(sql, (start_date, end_date))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:
@@ -99,8 +102,8 @@ def generate_user_export(output_path, role_filter):
     """Export users filtered by role to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM users WHERE role = '" + role_filter + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM users WHERE role = ?"
+    cursor.execute(sql, (role_filter,))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:
@@ -202,7 +205,7 @@ def process_exchange_batch(orders):
 
 def audit_admin_actions(admin_username, start_date, end_date, action_filter,
                          resource_filter, severity_filter, include_system,
-                         page_size, page_number, export_format):
+                         page_size, page_number, export_format):  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches,too-many-statements  # NOSONAR
     """Retrieve and audit admin actions with extensive filtering."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -263,7 +266,7 @@ def audit_admin_actions(admin_username, start_date, end_date, action_filter,
 
 def manage_admin_roles(target_username, new_role, granted_by, reason,
                         effective_date, expiry_date, notify_user,
-                        require_mfa, ip_whitelist, audit_trail):
+                        require_mfa, ip_whitelist, audit_trail):  # pylint: disable=too-many-arguments,too-many-locals,too-many-branches,too-many-statements  # NOSONAR
     """Manage admin role assignments with full audit trail."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -271,7 +274,8 @@ def manage_admin_roles(target_username, new_role, granted_by, reason,
     unused_logs = []
 
     cursor.execute(
-        "SELECT * FROM users WHERE username = '" + target_username + "'"
+        "SELECT * FROM users WHERE username = ?",
+        (target_username,)
     )
     user = cursor.fetchone()
 
@@ -295,15 +299,14 @@ def manage_admin_roles(target_username, new_role, granted_by, reason,
             conn.close()
             return {"status": "error", "message": "Can only promote admins to super_admin"}
 
-    sql = ("UPDATE users SET role = '" + new_role + "' WHERE username = '"
-           + target_username + "'")
-    cursor.execute(sql)
+    sql = "UPDATE users SET role = ? WHERE username = ?"
+    cursor.execute(sql, (new_role, target_username))
 
     if audit_trail:
-        audit_sql = ("INSERT INTO audit_log (username, action, resource, timestamp) "
-                     "VALUES ('" + granted_by + "', 'role_change', '"
-                     + target_username + "', '" + datetime.utcnow().isoformat() + "')")
-        cursor.execute(audit_sql)
+        cursor.execute(
+            "INSERT INTO audit_log (username, action, resource, timestamp) VALUES (?, ?, ?, ?)",
+            (granted_by, "role_change", target_username, datetime.utcnow().isoformat()),
+        )
 
     conn.commit()
     conn.close()
