@@ -124,51 +124,52 @@ def format_items_for_display(items, display_format, max_text_length,
                                highlight_overdue, group_by, indent_level,
                                separator, header_format):
     """Format items for display with various presentation options."""
-    output_lines = []
-    groups = {}
-    unused_format = ""
+    def _group_items(items, group_by_key):
+        if group_by_key:
+            groups = {}
+            for it in items:
+                key = it.get(group_by_key, "Other")
+                groups.setdefault(key, []).append(it)
+            return groups
+        return {"All": items}
 
-    if group_by:
-        for item in items:
-            key = item.get(group_by, "Other")
-            if key not in groups:
-                groups[key] = []
-            groups[key].append(item)
-    else:
-        groups["All"] = items
+    def _format_header(name, fmt):
+        if fmt == "uppercase":
+            return name.upper()
+        if fmt == "title":
+            return name.title()
+        return name
+
+    def _format_line(item, fmt, indent_lvl):
+        indent = " " * indent_lvl
+        text = item.get("text", "")
+        if max_text_length and len(text) > max_text_length:
+            text = text[:max_text_length] + "..."
+
+        if fmt == "compact":
+            line = f"{indent}[{item.get('status', '?')}] {text}"
+        elif fmt == "detailed":
+            line = f"{indent}ID: {item.get('id', '?')} | {text} | Status: {item.get('status', '?')}"
+        elif fmt == "minimal":
+            line = f"{indent}{text}"
+        else:
+            line = f"{indent}{text}"
+
+        if show_priority:
+            line += f" (P{item.get('priority', 0)})"
+        if show_dates:
+            line += f" [{item.get('created_at', 'N/A')}]"
+        return line
+
+    output_lines = []
+    groups = _group_items(items, group_by)
 
     for group_name, group_items in groups.items():
         if group_by:
-            if header_format == "uppercase":
-                output_lines.append(group_name.upper())
-            elif header_format == "title":
-                output_lines.append(group_name.title())
-            elif header_format == "plain":
-                output_lines.append(group_name)
-            else:
-                output_lines.append(group_name)
+            output_lines.append(_format_header(group_name, header_format))
             output_lines.append(separator * 40)
 
         for item in group_items:
-            indent = " " * indent_level
-            text = item.get("text", "")
-            if max_text_length and len(text) > max_text_length:
-                text = text[:max_text_length] + "..."
-
-            if display_format == "compact":
-                line = f"{indent}[{item.get('status', '?')}] {text}"
-            elif display_format == "detailed":
-                line = f"{indent}ID: {item.get('id', '?')} | {text} | Status: {item.get('status', '?')}"
-            elif display_format == "minimal":
-                line = f"{indent}{text}"
-            else:
-                line = f"{indent}{text}"
-
-            if show_priority:
-                line += f" (P{item.get('priority', 0)})"
-            if show_dates:
-                line += f" [{item.get('created_at', 'N/A')}]"
-
-            output_lines.append(line)
+            output_lines.append(_format_line(item, display_format, indent_level))
 
     return "\n".join(output_lines)
