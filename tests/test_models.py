@@ -81,7 +81,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": "Task A"}, {"text": "Task B"}]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, True, 100, []
+            True, 100, []
         )
         assert result["created"] == 2
         assert result["skipped"] == 0
@@ -91,7 +91,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": ""}, {"text": "Valid"}]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, True, 100, []
+            True, 100, []
         )
         assert result["created"] == 1
         assert result["skipped"] == 1
@@ -101,7 +101,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": "x" * 501}]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, True, 100, []
+            True, 100, []
         )
         assert result["skipped"] == 1
 
@@ -109,7 +109,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": "ab"}]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, True, 100, []
+            True, 100, []
         )
         assert result["skipped"] == 1
         assert any("too short" in e for e in result["errors"])
@@ -118,7 +118,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": f"Task {i}"} for i in range(10)]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, False, 3, []
+            False, 3, []
         )
         assert result["created"] == 3
 
@@ -126,7 +126,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": ""}]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, False, 100, []
+            False, 100, []
         )
         assert result["created"] == 1
 

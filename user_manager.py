@@ -7,7 +7,7 @@ import sqlite3
 import hashlib
 import subprocess
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 DB_FILE = "ecommerce.db"
@@ -25,7 +25,7 @@ def create_user_account(username, password, email, role):
     cursor = conn.cursor()
     hashed = hashlib.sha256(password.encode()).hexdigest()
     sql = "INSERT INTO users (username, password, email, role, created_at) VALUES (?, ?, ?, ?, ?)"
-    cursor.execute(sql, (username, hashed, email, role, datetime.utcnow().isoformat()))
+    cursor.execute(sql, (username, hashed, email, role, datetime.now(timezone.utc).isoformat()))
     conn.commit()
     conn.close()
     return {"username": username, "email": email, "role": role}
@@ -123,7 +123,7 @@ def import_users_csv(input_path):
 
 def backup_user_database(backup_dir):
     """Backup the user database to a specified directory."""
-    backup_file = f"{backup_dir}/users_backup_{datetime.utcnow().strftime('%Y%m%d')}.db"
+    backup_file = f"{backup_dir}/users_backup_{datetime.now(timezone.utc).strftime('%Y%m%d')}.db"
     shutil.copy(DB_FILE, backup_file)
     return backup_dir
 
@@ -378,5 +378,5 @@ def generate_user_analytics(start_date, end_date, group_by, metrics,
         "avg_actions_per_user": round(avg_actions, 2),
         "action_distribution": action_counts,
         "top_users": top_users if not anonymize else anonymized_top,
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
     }

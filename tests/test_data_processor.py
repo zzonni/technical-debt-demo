@@ -37,7 +37,7 @@ class TestHashUserPassword:
     def test_hash(self):
         h = data_processor.hash_user_password("secret")
         assert isinstance(h, str)
-        assert len(h) == 32
+        assert len(h) == 64
 
     def test_same_password_same_hash(self):
         h1 = data_processor.hash_user_password("test")
@@ -87,21 +87,6 @@ class TestProcessBatchRecords:
         assert result[0]["tier"] == "premium"
 
 
-class TestProcessBatchRecordsV2:
-    def test_processes_same_as_v1(self):
-        records = [{"id": 1, "name": "test", "value": 200.0, "status": "active"}]
-        v1 = data_processor.process_batch_records(records)
-        v2 = data_processor.process_batch_records_v2(records)
-        assert v1 == v2
-
-
-class TestProcessBatchRecordsV3:
-    def test_processes_same_as_v1(self):
-        records = [{"id": 1, "name": "test", "value": 200.0, "status": "active"}]
-        v1 = data_processor.process_batch_records(records)
-        v3 = data_processor.process_batch_records_v3(records)
-        assert v1 == v3
-
 
 class TestQueryRecords:
     @patch("sqlite3.connect")
@@ -144,20 +129,20 @@ class TestRunEtlScript:
 
 
 class TestLoadCachedObject:
-    @patch("builtins.open", mock_open(read_data=b""))
-    @patch("pickle.loads")
-    def test_load(self, mock_pickle):
-        mock_pickle.return_value = {"key": "value"}
-        result = data_processor.load_cached_object("/tmp/cache.pkl")
+    @patch("builtins.open", mock_open(read_data='{"key": "value"}'))
+    @patch("json.load")
+    def test_load(self, mock_json):
+        mock_json.return_value = {"key": "value"}
+        result = data_processor.load_cached_object("/tmp/cache.json")
         assert result == {"key": "value"}
 
 
 class TestSaveCachedObject:
-    @patch("pickle.dump")
+    @patch("json.dump")
     def test_save(self, mock_dump):
         m = mock_open()
         with patch("builtins.open", m):
-            data_processor.save_cached_object("/tmp/cache.pkl", {"key": "value"})
+            data_processor.save_cached_object("/tmp/cache.json", {"key": "value"})
         mock_dump.assert_called_once()
 
 
@@ -189,7 +174,6 @@ class TestValidateAndTransformRecords:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=False,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["valid_count"] == 1
         assert result["invalid_count"] == 0
@@ -203,7 +187,6 @@ class TestValidateAndTransformRecords:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=True, coerce_types=False,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["invalid_count"] == 1
         assert result["valid_count"] == 0
@@ -217,7 +200,6 @@ class TestValidateAndTransformRecords:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=True,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["valid_count"] == 1
         assert result["coerced_count"] == 1
@@ -231,7 +213,6 @@ class TestValidateAndTransformRecords:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=False,
             default_values={"age": 0}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["valid_count"] == 1
 
@@ -244,7 +225,7 @@ class TestValidateAndTransformRecords:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=False,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
+
         )
         assert result["skipped_count"] == 1
 
@@ -256,7 +237,6 @@ class TestValidateAndTransformRecords:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=True, coerce_types=False,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["error_count"] >= 1
 
@@ -268,7 +248,6 @@ class TestValidateAndTransformRecords:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=True,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["valid_count"] == 1
         assert result["coerced_count"] == 1
@@ -281,7 +260,6 @@ class TestValidateAndTransformRecords:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=False,
             default_values={"name": "unknown"}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["valid_count"] == 1
         assert result["valid"][0]["name"] == "unknown"
@@ -297,7 +275,7 @@ class TestAggregateDataByField:
         result = data_processor.aggregate_data_by_field(
             records, "category", "value", "sum",
             filter_func=None, include_empty=True, sort_result=False,
-            limit=None, format_output="json", decimal_places=2,
+            limit=None, decimal_places=2,
         )
         assert result["groups"]["A"]["value"] == 30
         assert result["groups"]["B"]["value"] == 5
@@ -311,7 +289,7 @@ class TestAggregateDataByField:
         result = data_processor.aggregate_data_by_field(
             records, "category", "value", "avg",
             filter_func=None, include_empty=True, sort_result=False,
-            limit=None, format_output="json", decimal_places=2,
+            limit=None, decimal_places=2,
         )
         assert result["groups"]["A"]["value"] == 15.0
 
@@ -323,7 +301,7 @@ class TestAggregateDataByField:
         result = data_processor.aggregate_data_by_field(
             records, "category", "value", "count",
             filter_func=None, include_empty=True, sort_result=False,
-            limit=None, format_output="json", decimal_places=2,
+            limit=None, decimal_places=2,
         )
         assert result["groups"]["A"]["value"] == 2
 
@@ -335,12 +313,12 @@ class TestAggregateDataByField:
         r_min = data_processor.aggregate_data_by_field(
             records, "category", "value", "min",
             filter_func=None, include_empty=True, sort_result=False,
-            limit=None, format_output="json", decimal_places=2,
+            limit=None, decimal_places=2,
         )
         r_max = data_processor.aggregate_data_by_field(
             records, "category", "value", "max",
             filter_func=None, include_empty=True, sort_result=False,
-            limit=None, format_output="json", decimal_places=2,
+            limit=None, decimal_places=2,
         )
         assert r_min["groups"]["A"]["value"] == 10
         assert r_max["groups"]["A"]["value"] == 20
@@ -353,7 +331,7 @@ class TestAggregateDataByField:
         result = data_processor.aggregate_data_by_field(
             records, "category", "value", "sum",
             filter_func=lambda r: r["value"] > 0, include_empty=True,
-            sort_result=False, limit=None, format_output="json", decimal_places=2,
+            sort_result=False, limit=None, decimal_places=2,
         )
         assert result["groups"]["A"]["value"] == 10
         assert result["skipped"] == 1
@@ -362,44 +340,44 @@ class TestAggregateDataByField:
 class TestProcessBatchRecordsV2Tiers:
     def test_premium_tier(self):
         records = [{"id": 1, "name": "x", "value": 1000.0, "status": "active"}]
-        result = data_processor.process_batch_records_v2(records)
+        result = data_processor.process_batch_records(records)
         assert result[0]["tier"] == "premium"
 
     def test_standard_tier(self):
         records = [{"id": 1, "name": "x", "value": 500.0, "status": "active"}]
-        result = data_processor.process_batch_records_v2(records)
+        result = data_processor.process_batch_records(records)
         assert result[0]["tier"] == "standard"
 
     def test_basic_tier(self):
         records = [{"id": 1, "name": "x", "value": 100.0, "status": "active"}]
-        result = data_processor.process_batch_records_v2(records)
+        result = data_processor.process_batch_records(records)
         assert result[0]["tier"] == "basic"
 
     def test_free_tier(self):
         records = [{"id": 1, "name": "x", "value": 50.0, "status": "active"}]
-        result = data_processor.process_batch_records_v2(records)
+        result = data_processor.process_batch_records(records)
         assert result[0]["tier"] == "free"
 
 
 class TestProcessBatchRecordsV3Tiers:
     def test_premium_tier(self):
         records = [{"id": 1, "name": "x", "value": 1000.0, "status": "active"}]
-        result = data_processor.process_batch_records_v3(records)
+        result = data_processor.process_batch_records(records)
         assert result[0]["tier"] == "premium"
 
     def test_standard_tier(self):
         records = [{"id": 1, "name": "x", "value": 500.0, "status": "active"}]
-        result = data_processor.process_batch_records_v3(records)
+        result = data_processor.process_batch_records(records)
         assert result[0]["tier"] == "standard"
 
     def test_basic_tier(self):
         records = [{"id": 1, "name": "x", "value": 100.0, "status": "active"}]
-        result = data_processor.process_batch_records_v3(records)
+        result = data_processor.process_batch_records(records)
         assert result[0]["tier"] == "basic"
 
     def test_free_tier(self):
         records = [{"id": 1, "name": "x", "value": 50.0, "status": "active"}]
-        result = data_processor.process_batch_records_v3(records)
+        result = data_processor.process_batch_records(records)
         assert result[0]["tier"] == "free"
 
 
@@ -413,7 +391,7 @@ class TestValidateAndTransformEdgeCases:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=False,
             default_values={"name": "fallback"}, on_error="default", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
+
         )
         assert result["valid_count"] == 1
 
@@ -425,7 +403,6 @@ class TestValidateAndTransformEdgeCases:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=False,
             default_values={}, on_error="log", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["invalid_count"] == 1
 
@@ -437,7 +414,6 @@ class TestValidateAndTransformEdgeCases:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=True, coerce_types=True,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["error_count"] >= 1
 
@@ -449,7 +425,6 @@ class TestValidateAndTransformEdgeCases:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=True, coerce_types=True,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["error_count"] >= 1
 
@@ -461,7 +436,6 @@ class TestValidateAndTransformEdgeCases:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=False,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["skipped_count"] == 1
 
@@ -473,7 +447,6 @@ class TestValidateAndTransformEdgeCases:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=True,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["valid_count"] == 1
         assert result["coerced_count"] == 1
@@ -487,7 +460,6 @@ class TestValidateAndTransformEdgeCases:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=False,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["skipped_count"] == 1
 
@@ -499,7 +471,6 @@ class TestValidateAndTransformEdgeCases:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=False, coerce_types=False,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["valid_count"] == 1
         assert result["valid"][0]["notes"] is None
@@ -512,7 +483,6 @@ class TestValidateAndTransformEdgeCases:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=True, coerce_types=False,
             default_values={}, on_error="skip", max_errors=1,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert result["invalid_count"] >= 1
 
@@ -524,7 +494,6 @@ class TestValidateAndTransformEdgeCases:
         result = data_processor.validate_and_transform_records(
             records, schema, strict_mode=True, coerce_types=False,
             default_values={}, on_error="skip", max_errors=10,
-            log_level="info", batch_id="b1", output_format="json",
         )
         assert any("below minimum" in e for e in result["invalid"][0]["errors"])
 
@@ -535,7 +504,7 @@ class TestAggregateUnknownFunc:
         result = data_processor.aggregate_data_by_field(
             records, "cat", "val", "unknown",
             filter_func=None, include_empty=True, sort_result=False,
-            limit=None, format_output="json", decimal_places=2,
+            limit=None, decimal_places=2,
         )
         assert result["groups"]["A"]["value"] == 30
 
@@ -548,7 +517,7 @@ class TestAggregateUnknownFunc:
         result = data_processor.aggregate_data_by_field(
             records, "category", "value", "sum",
             filter_func=None, include_empty=True, sort_result=True,
-            limit=2, format_output="json", decimal_places=2,
+            limit=2, decimal_places=2,
         )
         assert result["group_count"] == 2
         keys = list(result["groups"].keys())

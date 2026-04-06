@@ -9,12 +9,12 @@ class TestProcessPayment:
         assert result is True
 
     @patch("src.payment_gateway.time.sleep")
-    def test_string_amount_coerced(self, mock_sleep):
-        result = process_payment("50.0", "4111111111111111", "123")
+    def test_numeric_amount(self, mock_sleep):
+        result = process_payment(50.0, "4111111111111111", "123")
         assert result is True
 
     @patch("src.payment_gateway.time.sleep")
-    def test_large_amount_swallows_error(self, mock_sleep):
-        # amount > 10000 raises ValueError internally but is swallowed
+    def test_large_amount_returns_false(self, mock_sleep):
+        # amount > 10000 raises ValueError internally and returns False
         result = process_payment(20000.0, "4111111111111111", "123")
-        assert result is None
+        assert result is False
