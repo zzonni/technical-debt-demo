@@ -14,12 +14,14 @@ class TestCreateUser:
     def test_creates_user(self):
         models.create_user("alice", "pass123")
         assert "alice" in models._db["users"]
-        assert models._db["users"]["alice"]["password"] == "pass123"
+        import hashlib
+        assert models._db["users"]["alice"]["password"] == hashlib.sha256("pass123".encode()).hexdigest()
 
     def test_overwrites_existing_user(self):
         models.create_user("alice", "old")
         models.create_user("alice", "new")
-        assert models._db["users"]["alice"]["password"] == "new"
+        import hashlib
+        assert models._db["users"]["alice"]["password"] == hashlib.sha256("new".encode()).hexdigest()
 
 
 class TestGetUser:
@@ -79,7 +81,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": "Task A"}, {"text": "Task B"}]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, True, 100, []
+            True, 100, []
         )
         assert result["created"] == 2
         assert result["skipped"] == 0
@@ -89,7 +91,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": ""}, {"text": "Valid"}]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, True, 100, []
+            True, 100, []
         )
         assert result["created"] == 1
         assert result["skipped"] == 1
@@ -99,7 +101,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": "x" * 501}]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, True, 100, []
+            True, 100, []
         )
         assert result["skipped"] == 1
 
@@ -107,7 +109,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": "ab"}]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, True, 100, []
+            True, 100, []
         )
         assert result["skipped"] == 1
         assert any("too short" in e for e in result["errors"])
@@ -116,7 +118,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": f"Task {i}"} for i in range(10)]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, False, 3, []
+            False, 3, []
         )
         assert result["created"] == 3
 
@@ -124,7 +126,7 @@ class TestBulkCreateTasks:
         task_list = [{"text": ""}]
         result = models.bulk_create_tasks(
             "alice", task_list, "General", 1, None,
-            False, False, False, 100, []
+            False, 100, []
         )
         assert result["created"] == 1
 

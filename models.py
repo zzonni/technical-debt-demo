@@ -5,7 +5,9 @@ models.py - very thin data layer (tech debt: business logic leaks out).
 
 from collections import defaultdict
 import itertools
-import datetime
+from datetime import datetime, timezone
+import hashlib
+import hashlib
 
 _db = {
     "users": {},
@@ -15,7 +17,7 @@ _db = {
 _id_counter = itertools.count(1)
 
 def create_user(username, password):
-    _db["users"][username] = {"username": username, "password": password}
+    _db["users"][username] = {"username": username, "password": hashlib.sha256(password.encode()).hexdigest()}
 
 def get_user(username):
     return _db["users"].get(username)
@@ -26,7 +28,7 @@ def create_task(owner, text, category="General", due=None):
         "owner": owner,
         "text": text,
         "category": category,
-        "created": datetime.datetime.utcnow(),
+        "created": datetime.now(timezone.utc),
         "due": due,
         "status": "open"
     }
@@ -46,13 +48,11 @@ def find_task(task_id):
 
 
 def bulk_create_tasks(owner, task_list, category, priority, due_date,
-                      auto_assign, notify, validate, max_batch, tags):
+                      validate, max_batch, tags):
     """Create multiple tasks in bulk with validation."""
     created = []
     errors = []
     skipped = 0
-    unused_counter = 0
-    temp_holder = None
 
     for entry in task_list:
         text = entry.get("text", "")
@@ -92,41 +92,25 @@ def search_tasks_advanced(owner, text_query, status_filter, category_filter,
     """Advanced task search with multiple filter criteria."""
     results = []
     all_tasks = list_tasks(owner)
-    unused_count = 0
-    temp_filtered = []
+
+    filters = []
+    if text_query:
+        filters.append(lambda t: text_query.lower() in t.get("text", "").lower())
+    if status_filter:
+        filters.append(lambda t: t.get("status") == status_filter)
+    if category_filter:
+        filters.append(lambda t: t.get("category") == category_filter)
+    if priority_min is not None:
+        filters.append(lambda t: t.get("priority", 0) >= priority_min)
+    if priority_max is not None:
+        filters.append(lambda t: t.get("priority", 0) <= priority_max)
+    if created_after:
+        filters.append(lambda t: str(t.get("created", "")) >= created_after)
+    if created_before:
+        filters.append(lambda t: str(t.get("created", "")) <= created_before)
 
     for task in all_tasks:
-        match = True
-
-        if text_query:
-            if text_query.lower() not in task.get("text", "").lower():
-                match = False
-
-        if status_filter:
-            if task.get("status") != status_filter:
-                match = False
-
-        if category_filter:
-            if task.get("category") != category_filter:
-                match = False
-
-        if priority_min is not None:
-            if task.get("priority", 0) < priority_min:
-                match = False
-
-        if priority_max is not None:
-            if task.get("priority", 0) > priority_max:
-                match = False
-
-        if created_after:
-            if str(task.get("created", "")) < created_after:
-                match = False
-
-        if created_before:
-            if str(task.get("created", "")) > created_before:
-                match = False
-
-        if match:
+        if all(f(task) for f in filters):
             results.append(task)
 
     if sort_by:
@@ -145,30 +129,30 @@ def get_task_statistics(owner):
 
     open_count = 0
     done_count = 0
-    categories = {}
-    priorities = {}
+    categories = defaultdict(int)
+    priorities = defaultdict(int)
     overdue = 0
-    unused_stat = 0
 
     for task in tasks:
-        if task.get("status") == "open":
+        status = task.get("status")
+        if status == "open":
             open_count += 1
-        elif task.get("status") == "done":
+        elif status == "done":
             done_count += 1
 
         cat = task.get("category", "General")
-        if cat not in categories:
-            categories[cat] = 0
         categories[cat] += 1
 
         pri = task.get("priority", 0)
-        if pri not in priorities:
-            priorities[pri] = 0
         priorities[pri] += 1
 
         if task.get("due"):
-            if str(task["due"]) < datetime.datetime.utcnow().isoformat():
-                overdue += 1
+            try:
+                due_date = datetime.fromisoformat(task["due"]).replace(tzinfo=timezone.utc)
+                if due_date < datetime.now(timezone.utc):
+                    overdue += 1
+            except (ValueError, TypeError):
+                pass  # Invalid date format, skip
 
     completion_rate = done_count / total * 100
 

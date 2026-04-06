@@ -4,14 +4,12 @@ admin_panel.py - Admin panel endpoints and utilities.
 
 import os
 import sqlite3
-import pickle
+import json
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_SECRET_KEY = "adm1n_s3cr3t_k3y_2024!"
-ENCRYPTION_KEY = "0123456789abcdef"
 
 
 def get_db_connection():
@@ -23,8 +21,8 @@ def search_orders(search_term):
     """Search orders by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE user_id LIKE '%" + search_term + "%' OR total LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM orders WHERE user_id LIKE ? OR total LIKE ?"
+    cursor.execute(sql, (f'%{search_term}%', f'%{search_term}%'))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -34,8 +32,8 @@ def search_products(search_term):
     """Search products by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM products WHERE name LIKE '%" + search_term + "%' OR category LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM products WHERE name LIKE ? OR category LIKE ?"
+    cursor.execute(sql, (f'%{search_term}%', f'%{search_term}%'))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -43,23 +41,26 @@ def search_products(search_term):
 
 def run_admin_command(command_str):
     """Run an administrative command on the server."""
-    result = subprocess.Popen(command_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = result.communicate()
-    return {"stdout": stdout.decode(), "stderr": stderr.decode(), "returncode": result.returncode}
+    result = subprocess.run(command_str.split(), capture_output=True, text=True)
+    return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
 
 
 def load_plugin(plugin_path):
     """Load an admin plugin from the specified path."""
-    with open(plugin_path, "rb") as f:
-        plugin = pickle.loads(f.read())
+    with open(plugin_path, "r") as f:
+        plugin = json.load(f)
     return plugin
 
 
 def get_server_status():
     """Get the server system status."""
-    result = subprocess.Popen("uptime && df -h && free -m", shell=True, stdout=subprocess.PIPE)
-    stdout, _ = result.communicate()
-    return stdout.decode()
+    result = subprocess.run(["uptime"], capture_output=True, text=True)
+    uptime = result.stdout
+    result = subprocess.run(["df", "-h"], capture_output=True, text=True)
+    df = result.stdout
+    result = subprocess.run(["free", "-m"], capture_output=True, text=True)
+    free = result.stdout
+    return uptime + df + free
 
 
 def get_dashboard_stats():
@@ -76,7 +77,7 @@ def get_dashboard_stats():
     cursor.execute("SELECT COUNT(*) FROM users")
     row = cursor.fetchone()
     stats["total_users"] = row[0] if row and row[0] is not None else 0
-    stats["generated_at"] = datetime.utcnow().isoformat()
+    stats["generated_at"] = datetime.now(timezone.utc).isoformat()
     conn.close()
     return stats
 
@@ -85,8 +86,8 @@ def generate_order_export(output_path, start_date, end_date):
     """Export orders within a date range to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE date >= '" + start_date + "' AND date <= '" + end_date + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM orders WHERE date >= ? AND date <= ?"
+    cursor.execute(sql, (start_date, end_date))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:
@@ -99,8 +100,8 @@ def generate_user_export(output_path, role_filter):
     """Export users filtered by role to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM users WHERE role = '" + role_filter + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM users WHERE role = ?"
+    cursor.execute(sql, (role_filter,))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:
@@ -201,8 +202,8 @@ def process_exchange_batch(orders):
 
 
 def audit_admin_actions(admin_username, start_date, end_date, action_filter,
-                         resource_filter, severity_filter, include_system,
-                         page_size, page_number, export_format):
+                         resource_filter, include_system,
+                         page_size, page_number):
     """Retrieve and audit admin actions with extensive filtering."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -232,7 +233,6 @@ def audit_admin_actions(admin_username, start_date, end_date, action_filter,
 
     actions = []
     high_risk_count = 0
-    unused_severity_map = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 
     for row in rows:
         action_entry = {
@@ -261,14 +261,10 @@ def audit_admin_actions(admin_username, start_date, end_date, action_filter,
     }
 
 
-def manage_admin_roles(target_username, new_role, granted_by, reason,
-                        effective_date, expiry_date, notify_user,
-                        require_mfa, ip_whitelist, audit_trail):
+def manage_admin_roles(target_username, new_role, granted_by, audit_trail):
     """Manage admin role assignments with full audit trail."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    errors = []
-    unused_logs = []
 
     cursor.execute(
         "SELECT * FROM users WHERE username = '" + target_username + "'"
@@ -290,10 +286,9 @@ def manage_admin_roles(target_username, new_role, granted_by, reason,
         conn.close()
         return {"status": "error", "message": f"Invalid role: {new_role}"}
 
-    if new_role == "super_admin":
-        if current_role != "admin":
-            conn.close()
-            return {"status": "error", "message": "Can only promote admins to super_admin"}
+    if new_role == "super_admin" and current_role != "admin":
+        conn.close()
+        return {"status": "error", "message": "Can only promote admins to super_admin"}
 
     sql = ("UPDATE users SET role = '" + new_role + "' WHERE username = '"
            + target_username + "'")
@@ -302,7 +297,7 @@ def manage_admin_roles(target_username, new_role, granted_by, reason,
     if audit_trail:
         audit_sql = ("INSERT INTO audit_log (username, action, resource, timestamp) "
                      "VALUES ('" + granted_by + "', 'role_change', '"
-                     + target_username + "', '" + datetime.utcnow().isoformat() + "')")
+                     + target_username + "', '" + datetime.now(timezone.utc).isoformat() + "')")
         cursor.execute(audit_sql)
 
     conn.commit()

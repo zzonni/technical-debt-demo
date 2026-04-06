@@ -99,7 +99,7 @@ class TestBulkAddItems:
     def test_basic_bulk_add(self):
         result = storage.bulk_add_items(
             ["Task A", "Task B"], "General", 1, None, "alice",
-            False, False, 100, False, []
+            False, False, 100, []
         )
         assert result["added"] == 2
         assert result["skipped"] == 0
@@ -107,7 +107,7 @@ class TestBulkAddItems:
     def test_validation_empty_name(self):
         result = storage.bulk_add_items(
             ["", "Valid"], "General", 1, None, "alice",
-            True, False, 100, False, []
+            True, False, 100, []
         )
         assert result["added"] == 1
         assert result["skipped"] == 1
@@ -116,14 +116,14 @@ class TestBulkAddItems:
     def test_validation_too_long(self):
         result = storage.bulk_add_items(
             ["x" * 201], "General", 1, None, "alice",
-            True, False, 100, False, []
+            True, False, 100, []
         )
         assert result["skipped"] == 1
 
     def test_validation_too_short(self):
         result = storage.bulk_add_items(
             ["a"], "General", 1, None, "alice",
-            True, False, 100, False, []
+            True, False, 100, []
         )
         assert result["skipped"] == 1
 
@@ -131,7 +131,7 @@ class TestBulkAddItems:
         storage.add_item("Existing")
         result = storage.bulk_add_items(
             ["existing", "New one"], "General", 1, None, "alice",
-            False, True, 100, False, []
+            False, True, 100, []
         )
         assert result["added"] == 1
         assert result["skipped"] == 1
@@ -139,7 +139,7 @@ class TestBulkAddItems:
     def test_max_batch(self):
         result = storage.bulk_add_items(
             ["A", "B", "C", "D"], "General", 1, None, "alice",
-            False, False, 2, False, []
+            False, False, 2, []
         )
         assert result["added"] == 2
 
@@ -197,7 +197,7 @@ class TestExportItemsToFile:
         storage.add_item("task1")
         out = str(tmp_path / "out.json")
         result = storage.export_items_to_file(
-            out, "json", None, None, False, None, None, "%Y-%m-%d", "utf-8", ","
+            out, "json", None, None, None, None, "utf-8", ","
         )
         assert result["exported"] == 1
         import json as json_mod
@@ -209,7 +209,7 @@ class TestExportItemsToFile:
         storage.add_item("task1")
         out = str(tmp_path / "out.csv")
         result = storage.export_items_to_file(
-            out, "csv", None, None, False, None, None, "%Y-%m-%d", "utf-8", ","
+            out, "csv", None, None, None, None, "utf-8", ","
         )
         assert result["exported"] == 1
         content = open(out).read()
@@ -219,7 +219,7 @@ class TestExportItemsToFile:
         storage.add_item("task1")
         out = str(tmp_path / "out.txt")
         result = storage.export_items_to_file(
-            out, "txt", None, None, False, None, None, "%Y-%m-%d", "utf-8", ","
+            out, "txt", None, None, None, None, "utf-8", ","
         )
         assert result["exported"] == 1
 
@@ -229,7 +229,7 @@ class TestExportItemsToFile:
         storage.toggle_item(2)
         out = str(tmp_path / "out.json")
         result = storage.export_items_to_file(
-            out, "json", "done", None, False, None, None, "%Y-%m-%d", "utf-8", ","
+            out, "json", "done", None, None, None, "utf-8", ","
         )
         assert result["exported"] == 1
 
@@ -238,6 +238,6 @@ class TestExportItemsToFile:
         storage.add_item("A task")
         out = str(tmp_path / "out.json")
         result = storage.export_items_to_file(
-            out, "json", None, None, False, "text", "asc", "%Y-%m-%d", "utf-8", ","
+            out, "json", None, None, "text", "asc", "utf-8", ","
         )
         assert result["exported"] == 2
