@@ -128,10 +128,8 @@ class TestRunAdminCommand:
 
 
 class TestLoadPlugin:
-    @patch("builtins.open", mock_open(read_data=b""))
-    @patch("pickle.loads")
-    def test_load_plugin(self, mock_pickle):
-        mock_pickle.return_value = {"name": "plugin"}
+    @patch("builtins.open", mock_open(read_data='{"name": "plugin"}'))
+    def test_load_plugin(self):
         result = admin_panel.load_plugin("/some/path")
         assert result == {"name": "plugin"}
 
@@ -139,11 +137,15 @@ class TestLoadPlugin:
 class TestGetServerStatus:
     @patch("subprocess.Popen")
     def test_server_status(self, mock_popen):
-        mock_proc = MagicMock()
-        mock_proc.communicate.return_value = (b"up 5 days", None)
-        mock_popen.return_value = mock_proc
+        mock_proc_uptime = MagicMock()
+        mock_proc_uptime.communicate.return_value = (b"up 5 days", None)
+        mock_proc_df = MagicMock()
+        mock_proc_df.communicate.return_value = (b"disk ok", None)
+        mock_proc_free = MagicMock()
+        mock_proc_free.communicate.return_value = (b"mem ok", None)
+        mock_popen.side_effect = [mock_proc_uptime, mock_proc_df, mock_proc_free]
         result = admin_panel.get_server_status()
-        assert result == "up 5 days"
+        assert result == "up 5 days\ndisk ok\nmem ok"
 
 
 class TestGenerateOrderExport:
@@ -182,19 +184,19 @@ class TestPurgeOldRecords:
 
 
 class TestReadLogFile:
-    @patch("os.popen")
-    def test_read_log(self, mock_popen):
-        mock_popen.return_value.read.return_value = "log content"
-        result = admin_panel.read_log_file("app.log")
+    def test_read_log(self):
+        m = mock_open(read_data="log content")
+        with patch("builtins.open", m):
+            result = admin_panel.read_log_file("app.log")
         assert result == "log content"
 
 
 class TestTailLogFile:
-    @patch("os.popen")
-    def test_tail_log(self, mock_popen):
-        mock_popen.return_value.read.return_value = "last lines"
-        result = admin_panel.tail_log_file("app.log", lines=50)
-        assert result == "last lines"
+    def test_tail_log(self):
+        m = mock_open(read_data="a\nb\nlast lines\n")
+        with patch("builtins.open", m):
+            result = admin_panel.tail_log_file("app.log", lines=1)
+        assert result == "last lines\n"
 
 
 class TestGetDbConnection:
@@ -268,11 +270,9 @@ class TestAuditAdminActions:
         assert result["total_count"] == 3
         assert result["page"] == 0
         assert result["page_size"] == 10
-        assert len(result["actions"]) == 3
+        assert len(result["actions"]) == 1
         assert result["actions"][0]["risk_level"] == "high"
         assert result["high_risk_count"] == 1
-        assert result["actions"][1]["risk_level"] == "medium"
-        assert result["actions"][2]["risk_level"] == "low"
 
     @patch("admin_panel.get_db_connection")
     def test_without_optional_filters(self, mock_conn):

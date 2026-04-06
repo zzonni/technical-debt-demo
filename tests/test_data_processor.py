@@ -144,16 +144,14 @@ class TestRunEtlScript:
 
 
 class TestLoadCachedObject:
-    @patch("builtins.open", mock_open(read_data=b""))
-    @patch("pickle.loads")
-    def test_load(self, mock_pickle):
-        mock_pickle.return_value = {"key": "value"}
+    @patch("builtins.open", mock_open(read_data='{"key": "value"}'))
+    def test_load(self):
         result = data_processor.load_cached_object("/tmp/cache.pkl")
         assert result == {"key": "value"}
 
 
 class TestSaveCachedObject:
-    @patch("pickle.dump")
+    @patch("json.dump")
     def test_save(self, mock_dump):
         m = mock_open()
         with patch("builtins.open", m):
@@ -172,10 +170,11 @@ class TestFetchRemoteConfig:
 
 
 class TestGenerateSystemReport:
-    @patch("os.system")
-    def test_generate(self, mock_system):
-        mock_system.return_value = 0
-        result = data_processor.generate_system_report("access", "/tmp")
+    def test_generate(self):
+        source = mock_open(read_data="content")
+        target = mock_open()
+        with patch("builtins.open", side_effect=[source.return_value, target.return_value]):
+            result = data_processor.generate_system_report("access", "/tmp")
         assert result == "/tmp/report.txt"
 
 
