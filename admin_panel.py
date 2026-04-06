@@ -6,7 +6,7 @@ import os
 import sqlite3
 import pickle
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 DB_FILE = "ecommerce.db"
@@ -23,8 +23,8 @@ def search_orders(search_term):
     """Search orders by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE user_id LIKE '%" + search_term + "%' OR total LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM orders WHERE user_id LIKE ? OR total LIKE ?"
+    cursor.execute(sql, (f"%{search_term}%", f"%{search_term}%"))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -34,8 +34,8 @@ def search_products(search_term):
     """Search products by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM products WHERE name LIKE '%" + search_term + "%' OR category LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM products WHERE name LIKE ? OR category LIKE ?"
+    cursor.execute(sql, (f"%{search_term}%", f"%{search_term}%"))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -76,7 +76,7 @@ def get_dashboard_stats():
     cursor.execute("SELECT COUNT(*) FROM users")
     row = cursor.fetchone()
     stats["total_users"] = row[0] if row and row[0] is not None else 0
-    stats["generated_at"] = datetime.utcnow().isoformat()
+    stats["generated_at"] = datetime.now(timezone.utc).isoformat()
     conn.close()
     return stats
 
@@ -85,8 +85,8 @@ def generate_order_export(output_path, start_date, end_date):
     """Export orders within a date range to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE date >= '" + start_date + "' AND date <= '" + end_date + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM orders WHERE date >= ? AND date <= ?"
+    cursor.execute(sql, (start_date, end_date))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:
@@ -99,8 +99,8 @@ def generate_user_export(output_path, role_filter):
     """Export users filtered by role to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM users WHERE role = '" + role_filter + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM users WHERE role = ?"
+    cursor.execute(sql, (role_filter,))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:
@@ -232,7 +232,6 @@ def audit_admin_actions(admin_username, start_date, end_date, action_filter,
 
     actions = []
     high_risk_count = 0
-    unused_severity_map = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 
     for row in rows:
         action_entry = {
@@ -295,15 +294,13 @@ def manage_admin_roles(target_username, new_role, granted_by, reason,
             conn.close()
             return {"status": "error", "message": "Can only promote admins to super_admin"}
 
-    sql = ("UPDATE users SET role = '" + new_role + "' WHERE username = '"
-           + target_username + "'")
-    cursor.execute(sql)
+    sql = "UPDATE users SET role = ? WHERE username = ?"
+    cursor.execute(sql, (new_role, target_username))
 
     if audit_trail:
         audit_sql = ("INSERT INTO audit_log (username, action, resource, timestamp) "
-                     "VALUES ('" + granted_by + "', 'role_change', '"
-                     + target_username + "', '" + datetime.utcnow().isoformat() + "')")
-        cursor.execute(audit_sql)
+                     "VALUES (?, ?, ?, ?)")
+        cursor.execute(audit_sql, (granted_by, 'role_change', target_username, datetime.now(timezone.utc).isoformat()))
 
     conn.commit()
     conn.close()

@@ -64,8 +64,8 @@ def query_records(table_name, filter_column, filter_value):
     """Query records from the database with filtering."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "SELECT * FROM " + table_name + " WHERE " + filter_column + " = '" + filter_value + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM " + table_name + " WHERE " + filter_column + " = ?"
+    cursor.execute(sql, (filter_value,))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -76,9 +76,9 @@ def insert_record(table_name, columns, values):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cols_str = ", ".join(columns)
-    vals_str = ", ".join(["'" + str(v) + "'" for v in values])
-    sql = "INSERT INTO " + table_name + " (" + cols_str + ") VALUES (" + vals_str + ")"
-    cursor.execute(sql)
+    placeholders = ", ".join(["?" for _ in values])
+    sql = "INSERT INTO " + table_name + " (" + cols_str + ") VALUES (" + placeholders + ")"
+    cursor.execute(sql, values)
     conn.commit()
     conn.close()
 
@@ -87,6 +87,7 @@ def delete_records(table_name, condition):
     """Delete records matching the given condition."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    # Note: condition parameter should be parameterized by caller
     sql = "DELETE FROM " + table_name + " WHERE " + condition
     cursor.execute(sql)
     conn.commit()
