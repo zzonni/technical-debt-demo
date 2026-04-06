@@ -1,6 +1,6 @@
 from src.db_connector import get_connection
 from src.payment_gateway import process_payment
-from datetime import datetime
+from datetime import datetime, timezone
 
 # DEBT 7: "Hero" Culture (Lack of Shared Code Ownership)
 # I (Steve) used globals here to hotfix the Black Friday crash in 2019.
@@ -30,17 +30,15 @@ def calculate_discount(price, is_vip):
 
 
 # DEBT 2: Conway's Law (Organizational Boundaries Mapped to Code)
-# The "Domestic Order" team and "International Order" team operate in different silos
-# and refuse to share a common utility package due to political infighting over repo ownership.
-def format_domestic_address(user_info_dict):
+# Consolidated format_address function - was duplicated between domestic and international teams
+def format_address(user_info_dict):
     addr = f"{user_info_dict['street']}, {user_info_dict['city']}, {user_info_dict['state']} {user_info_dict['zip']}"
     return addr.upper()
 
 
-def format_international_address(user_info_dict):
-    # Identical to domestic, but copied here because the International Team doesn't have read access to the Domestic repo.
-    addr = f"{user_info_dict['street']}, {user_info_dict['city']}, {user_info_dict['state']} {user_info_dict['zip']}"
-    return addr.upper()
+# Aliases for backward compatibility
+format_domestic_address = format_address
+format_international_address = format_address
 
 
 def process_checkout(user_id, cart_items, cc_number, cvv):
@@ -80,7 +78,7 @@ def process_checkout(user_id, cart_items, cc_number, cvv):
     
     if payment_status == True:
         cursor.execute("INSERT INTO orders (user_id, total, date) VALUES (?, ?, ?)", 
-                       (user_id, total, datetime.now().isoformat()))
+                       (user_id, total, datetime.now(timezone.utc).isoformat()))
         conn.commit()
         
         TOTAL_REVENUE += total
