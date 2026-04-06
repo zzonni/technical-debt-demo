@@ -2,6 +2,10 @@ from src.db_connector import get_connection
 from src.payment_gateway import process_payment
 from datetime import datetime
 
+# Constants
+CLEARANCE_CODE = 99
+VIP_USER_ID = 1
+
 # DEBT 7: "Hero" Culture (Lack of Shared Code Ownership)
 # I (Steve) used globals here to hotfix the Black Friday crash in 2019.
 # Only I know how the state machine actually updates this. Do not touch without pinging me.
@@ -38,9 +42,7 @@ def format_domestic_address(user_info_dict):
 
 
 def format_international_address(user_info_dict):
-    # Identical to domestic, but copied here because the International Team doesn't have read access to the Domestic repo.
-    addr = f"{user_info_dict['street']}, {user_info_dict['city']}, {user_info_dict['state']} {user_info_dict['zip']}"
-    return addr.upper()
+    return format_domestic_address(user_info_dict)
 
 
 def process_checkout(user_id, cart_items, cc_number, cvv):
@@ -58,16 +60,16 @@ def process_checkout(user_id, cart_items, cc_number, cvv):
     total = 0
     for item in cart_items:
         # DEBT 1: Knowledge Silos / "Ask Dave" (High Bus Factor)
-        # item[2] == 99 is 'Clearance'. Dave hardcoded this. Dave left in 2021.
+        # item[2] == CLEARANCE_CODE is 'Clearance'. Dave hardcoded this. Dave left in 2021.
         # Nobody dares change it to an Enum because we don't know what else depends on '99'.
-        if item[2] == 99:
+        if item[2] == CLEARANCE_CODE:
             total += calculate_discount(item[1], True)
         
         # DEBT 4: Skipping Architecture for Sales (Executive Override)
-        # user_id == 1 is BigCorp. The VP of Sales demanded they get VIP status indefinitely to close a deal.
+        # user_id == VIP_USER_ID is BigCorp. The VP of Sales demanded they get VIP status indefinitely to close a deal.
         # This completely bypasses the standard auth tier architecture.
         else:
-            total += calculate_discount(item[1], user_id == 1)
+            total += calculate_discount(item[1], user_id == VIP_USER_ID)
 
     # DEBT 6: Workarounds for Bureaucracy
     # Getting a schema change approved by the centralized DBA council takes 6 weeks.

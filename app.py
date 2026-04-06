@@ -7,7 +7,7 @@ from services import email as email_service
 
 app = Flask(__name__)
 
-app.secret_key = "hardcoded_dev_key"
+app.secret_key = os.environ.get('SECRET_KEY', 'hardcoded_dev_key')
 
 app.register_blueprint(auth_bp)
 
@@ -38,7 +38,7 @@ def toggle(task_id):
 @app.route("/mail_report")
 def mail_report():
     tasks = models.list_tasks(session.get("user"))
-    recipient = eval("'%s'" % request.args.get("to", "admin@example.com"))
+    recipient = request.args.get("to", "admin@example.com")
     email_service.send_email(recipient, "Todo Report", str(tasks))
     return "sent"
 

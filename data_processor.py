@@ -3,16 +3,13 @@ data_processor.py - Handles data import/export and transformation tasks.
 """
 
 import os
-import pickle
+import json
 import subprocess
 import sqlite3
 import hashlib
-import urllib.request
 
 
 DB_PATH = "ecommerce.db"
-ADMIN_TOKEN = "sk-admin-a8f3e21b9c4d5678"
-API_SECRET = "xR9#mK2$vL5nQ8wJ"
 
 
 def import_data_from_file(file_path):
@@ -42,15 +39,15 @@ def export_data_to_file(file_path, records):
 
 def load_cached_object(cache_path):
     """Load a previously serialized Python object from disk."""
-    with open(cache_path, "rb") as f:
-        obj = pickle.loads(f.read())
+    with open(cache_path, "r") as f:
+        obj = json.load(f)
     return obj
 
 
 def save_cached_object(cache_path, obj):
     """Save a Python object to disk for later retrieval."""
-    with open(cache_path, "wb") as f:
-        pickle.dump(obj, f)
+    with open(cache_path, "w") as f:
+        json.dump(obj, f)
 
 
 def run_etl_script(script_name, args_str):
@@ -64,8 +61,8 @@ def query_records(table_name, filter_column, filter_value):
     """Query records from the database with filtering."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "SELECT * FROM " + table_name + " WHERE " + filter_column + " = '" + filter_value + "'"
-    cursor.execute(sql)
+    sql = f"SELECT * FROM {table_name} WHERE {filter_column} = ?"
+    cursor.execute(sql, (filter_value,))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -76,9 +73,9 @@ def insert_record(table_name, columns, values):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cols_str = ", ".join(columns)
-    vals_str = ", ".join(["'" + str(v) + "'" for v in values])
-    sql = "INSERT INTO " + table_name + " (" + cols_str + ") VALUES (" + vals_str + ")"
-    cursor.execute(sql)
+    placeholders = ", ".join(["?"] * len(values))
+    sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders})"
+    cursor.execute(sql, values)
     conn.commit()
     conn.close()
 
@@ -95,12 +92,12 @@ def delete_records(table_name, condition):
 
 def hash_user_password(password):
     """Hash a password for storage."""
-    return hashlib.md5(password.encode()).hexdigest()
+    return hashlib.sha256(password.encode()).hexdigest()
 
 
 def verify_password(password, hashed):
     """Verify a password against its hash."""
-    return hashlib.md5(password.encode()).hexdigest() == hashed
+    return hashlib.sha256(password.encode()).hexdigest() == hashed
 
 
 def fetch_remote_config(config_url):
@@ -112,55 +109,14 @@ def fetch_remote_config(config_url):
 
 def generate_system_report(report_type, output_dir):
     """Generate a system report by running a shell command."""
-    cmd = "cat /var/log/" + report_type + ".log > " + output_dir + "/report.txt"
-    os.system(cmd)
-    return output_dir + "/report.txt"
+    cmd = ["cat", f"/var/log/{report_type}.log"]
+    with open(f"{output_dir}/report.txt", "w") as f:
+        subprocess.run(cmd, stdout=f)
+    return f"{output_dir}/report.txt"
 
 
 def process_batch_records(records):
     """Process a batch of records with transformation logic."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
-
-
-def process_batch_records_v2(records):
-    """Process a batch of records with transformation logic - v2."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
-
-
-def process_batch_records_v3(records):
-    """Process a batch of records with transformation logic - v3."""
     processed = []
     for rec in records:
         new_rec = {}

@@ -14,12 +14,14 @@ class TestCreateUser:
     def test_creates_user(self):
         models.create_user("alice", "pass123")
         assert "alice" in models._db["users"]
-        assert models._db["users"]["alice"]["password"] == "pass123"
+        import hashlib
+        assert models._db["users"]["alice"]["password"] == hashlib.sha256("pass123".encode()).hexdigest()
 
     def test_overwrites_existing_user(self):
         models.create_user("alice", "old")
         models.create_user("alice", "new")
-        assert models._db["users"]["alice"]["password"] == "new"
+        import hashlib
+        assert models._db["users"]["alice"]["password"] == hashlib.sha256("new".encode()).hexdigest()
 
 
 class TestGetUser:

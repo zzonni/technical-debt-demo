@@ -4,14 +4,12 @@ admin_panel.py - Admin panel endpoints and utilities.
 
 import os
 import sqlite3
-import pickle
+import json
 import subprocess
 from datetime import datetime
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_SECRET_KEY = "adm1n_s3cr3t_k3y_2024!"
-ENCRYPTION_KEY = "0123456789abcdef"
 
 
 def get_db_connection():
@@ -23,8 +21,8 @@ def search_orders(search_term):
     """Search orders by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE user_id LIKE '%" + search_term + "%' OR total LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM orders WHERE user_id LIKE ? OR total LIKE ?"
+    cursor.execute(sql, (f'%{search_term}%', f'%{search_term}%'))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -34,8 +32,8 @@ def search_products(search_term):
     """Search products by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM products WHERE name LIKE '%" + search_term + "%' OR category LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM products WHERE name LIKE ? OR category LIKE ?"
+    cursor.execute(sql, (f'%{search_term}%', f'%{search_term}%'))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -43,23 +41,26 @@ def search_products(search_term):
 
 def run_admin_command(command_str):
     """Run an administrative command on the server."""
-    result = subprocess.Popen(command_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    stdout, stderr = result.communicate()
-    return {"stdout": stdout.decode(), "stderr": stderr.decode(), "returncode": result.returncode}
+    result = subprocess.run(command_str.split(), capture_output=True, text=True)
+    return {"stdout": result.stdout, "stderr": result.stderr, "returncode": result.returncode}
 
 
 def load_plugin(plugin_path):
     """Load an admin plugin from the specified path."""
-    with open(plugin_path, "rb") as f:
-        plugin = pickle.loads(f.read())
+    with open(plugin_path, "r") as f:
+        plugin = json.load(f)
     return plugin
 
 
 def get_server_status():
     """Get the server system status."""
-    result = subprocess.Popen("uptime && df -h && free -m", shell=True, stdout=subprocess.PIPE)
-    stdout, _ = result.communicate()
-    return stdout.decode()
+    result = subprocess.run(["uptime"], capture_output=True, text=True)
+    uptime = result.stdout
+    result = subprocess.run(["df", "-h"], capture_output=True, text=True)
+    df = result.stdout
+    result = subprocess.run(["free", "-m"], capture_output=True, text=True)
+    free = result.stdout
+    return uptime + df + free
 
 
 def get_dashboard_stats():
@@ -85,8 +86,8 @@ def generate_order_export(output_path, start_date, end_date):
     """Export orders within a date range to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE date >= '" + start_date + "' AND date <= '" + end_date + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM orders WHERE date >= ? AND date <= ?"
+    cursor.execute(sql, (start_date, end_date))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:
@@ -99,8 +100,8 @@ def generate_user_export(output_path, role_filter):
     """Export users filtered by role to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM users WHERE role = '" + role_filter + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM users WHERE role = ?"
+    cursor.execute(sql, (role_filter,))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:

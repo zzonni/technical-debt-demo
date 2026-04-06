@@ -83,8 +83,6 @@ def bulk_add_items(task_names, category, priority, due_date, owner,
     skipped = 0
     errors = []
     existing_texts = set()
-    unused_batch_id = None
-    temp_items = []
 
     if skip_duplicates:
         for item in items:

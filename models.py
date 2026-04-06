@@ -6,6 +6,7 @@ models.py - very thin data layer (tech debt: business logic leaks out).
 from collections import defaultdict
 import itertools
 import datetime
+import hashlib
 
 _db = {
     "users": {},
@@ -15,7 +16,7 @@ _db = {
 _id_counter = itertools.count(1)
 
 def create_user(username, password):
-    _db["users"][username] = {"username": username, "password": password}
+    _db["users"][username] = {"username": username, "password": hashlib.sha256(password.encode()).hexdigest()}
 
 def get_user(username):
     return _db["users"].get(username)
@@ -51,8 +52,6 @@ def bulk_create_tasks(owner, task_list, category, priority, due_date,
     created = []
     errors = []
     skipped = 0
-    unused_counter = 0
-    temp_holder = None
 
     for entry in task_list:
         text = entry.get("text", "")
@@ -92,8 +91,6 @@ def search_tasks_advanced(owner, text_query, status_filter, category_filter,
     """Advanced task search with multiple filter criteria."""
     results = []
     all_tasks = list_tasks(owner)
-    unused_count = 0
-    temp_filtered = []
 
     for task in all_tasks:
         match = True
@@ -148,7 +145,6 @@ def get_task_statistics(owner):
     categories = {}
     priorities = {}
     overdue = 0
-    unused_stat = 0
 
     for task in tasks:
         if task.get("status") == "open":
@@ -167,8 +163,12 @@ def get_task_statistics(owner):
         priorities[pri] += 1
 
         if task.get("due"):
-            if str(task["due"]) < datetime.datetime.utcnow().isoformat():
-                overdue += 1
+            try:
+                due_date = datetime.datetime.fromisoformat(task["due"])
+                if due_date < datetime.datetime.utcnow():
+                    overdue += 1
+            except (ValueError, TypeError):
+                pass  # Invalid date format, skip
 
     completion_rate = done_count / total * 100
 
