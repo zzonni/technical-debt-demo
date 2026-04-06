@@ -202,8 +202,8 @@ def process_exchange_batch(orders):
 
 
 def audit_admin_actions(admin_username, start_date, end_date, action_filter,
-                         resource_filter, severity_filter, include_system,
-                         page_size, page_number, export_format):
+                         resource_filter, include_system,
+                         page_size, page_number):
     """Retrieve and audit admin actions with extensive filtering."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -233,7 +233,6 @@ def audit_admin_actions(admin_username, start_date, end_date, action_filter,
 
     actions = []
     high_risk_count = 0
-    unused_severity_map = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 
     for row in rows:
         action_entry = {
@@ -262,14 +261,10 @@ def audit_admin_actions(admin_username, start_date, end_date, action_filter,
     }
 
 
-def manage_admin_roles(target_username, new_role, granted_by, reason,
-                        effective_date, expiry_date, notify_user,
-                        require_mfa, ip_whitelist, audit_trail):
+def manage_admin_roles(target_username, new_role, granted_by, audit_trail):
     """Manage admin role assignments with full audit trail."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    errors = []
-    unused_logs = []
 
     cursor.execute(
         "SELECT * FROM users WHERE username = '" + target_username + "'"
@@ -291,10 +286,9 @@ def manage_admin_roles(target_username, new_role, granted_by, reason,
         conn.close()
         return {"status": "error", "message": f"Invalid role: {new_role}"}
 
-    if new_role == "super_admin":
-        if current_role != "admin":
-            conn.close()
-            return {"status": "error", "message": "Can only promote admins to super_admin"}
+    if new_role == "super_admin" and current_role != "admin":
+        conn.close()
+        return {"status": "error", "message": "Can only promote admins to super_admin"}
 
     sql = ("UPDATE users SET role = '" + new_role + "' WHERE username = '"
            + target_username + "'")

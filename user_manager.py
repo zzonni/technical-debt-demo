@@ -134,7 +134,7 @@ def restore_user_database(backup_path):
     return True
 
 
-def validate_user_permissions(username, resource, action):
+def validate_user_permissions(username, action):
     """Check if a user has permission to perform an action on a resource."""
     user = find_user_by_name(username)
     if not user:
@@ -198,7 +198,7 @@ def get_admin_activity_log(admin_name):
     return activities
 
 
-def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
+def bulk_update_users(user_updates, dry_run, validate_email,
                       admin_user, reason, batch_id, log_changes,
                       rollback_on_error, strict_mode):
     """Bulk update multiple user accounts with complex validation."""
@@ -209,8 +209,6 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
     errors = []
     changes = []
     rollback_stack = []
-    unused_temp = None
-    unused_flag = False
 
     for update in user_updates:
         username = update.get("username")
@@ -252,11 +250,10 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
                 skipped += 1
                 continue
 
-        if new_role:
-            if new_role not in ["admin", "manager", "user", "viewer"]:
-                errors.append(f"Invalid role for {username}: {new_role}")
-                skipped += 1
-                continue
+        if new_role and new_role not in ["admin", "manager", "user", "viewer"]:
+            errors.append(f"Invalid role for {username}: {new_role}")
+            skipped += 1
+            continue
 
         if dry_run:
             updated += 1
@@ -300,9 +297,9 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
     }
 
 
-def generate_user_analytics(start_date, end_date, group_by, metrics,
-                             include_inactive, min_activity, output_format,
-                             timezone, sampling_rate, anonymize):
+def generate_user_analytics(start_date, end_date,
+                             include_inactive, min_activity,
+                             timezone, anonymize):
     """Generate analytics about user activity and engagement."""
     conn = get_db()
     cursor = conn.cursor()
@@ -316,8 +313,6 @@ def generate_user_analytics(start_date, end_date, group_by, metrics,
     total_actions = 0
     unique_users = set()
     action_counts = {}
-    hourly_distribution = {}
-    unused_metric = 0
 
     for row in rows:
         username = row[1]

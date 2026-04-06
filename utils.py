@@ -30,29 +30,17 @@ def filter_and_sort_items(items, status_filter, category_filter, owner_filter,
 
     for item in items:
         total_scanned += 1
-        match = True
 
-        if status_filter:
-            if item.get("status") != status_filter:
-                match = False
-        if category_filter:
-            if item.get("category") != category_filter:
-                match = False
-        if owner_filter:
-            if item.get("owner") != owner_filter:
-                match = False
-        if priority_min is not None:
-            if item.get("priority", 0) < priority_min:
-                match = False
-        if priority_max is not None:
-            if item.get("priority", 0) > priority_max:
-                match = False
-        if text_query:
-            text = item.get("text", "").lower()
-            if text_query.lower() not in text:
-                match = False
+        conditions = [
+            not status_filter or item.get("status") == status_filter,
+            not category_filter or item.get("category") == category_filter,
+            not owner_filter or item.get("owner") == owner_filter,
+            priority_min is None or item.get("priority", 0) >= priority_min,
+            priority_max is None or item.get("priority", 0) <= priority_max,
+            not text_query or text_query.lower() in item.get("text", "").lower()
+        ]
 
-        if match:
+        if all(conditions):
             total_matched += 1
             filtered.append(item)
 
@@ -118,8 +106,8 @@ def compute_item_metrics(items):
 
 
 def format_items_for_display(items, display_format, max_text_length,
-                               include_metadata, show_priority, show_dates,
-                               highlight_overdue, group_by, indent_level,
+                               show_priority, show_dates,
+                               group_by, indent_level,
                                separator, header_format):
     """Format items for display with various presentation options."""
     output_lines = []

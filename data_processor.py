@@ -233,7 +233,6 @@ def validate_and_transform_records(records, schema, strict_mode, coerce_types,
                     break
             elif on_error == "skip":
                 skipped_count += 1
-                continue
             elif on_error == "default":
                 for field_name in schema:
                     if field_name not in transformed and field_name in default_values:

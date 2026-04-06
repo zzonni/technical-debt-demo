@@ -1,6 +1,6 @@
 import time
 
-def process_payment(amount, cc_number, cvv):
+def process_payment(amount, cc_number):
     if not isinstance(amount, (int, float)):
         raise TypeError("Amount must be a number")
 
@@ -11,5 +11,5 @@ def process_payment(amount, cc_number, cvv):
         if amount > 10000:
             raise ValueError("Amount too large to process automatically")
         return True
-    except Exception as e:
+    except Exception:
         return False 
