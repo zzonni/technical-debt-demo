@@ -1,6 +1,7 @@
 from src.db_connector import get_connection
 from src.payment_gateway import process_payment
 from datetime import datetime
+import logging
 
 # DEBT 7: "Hero" Culture (Lack of Shared Code Ownership)
 # I (Steve) used globals here to hotfix the Black Friday crash in 2019.
@@ -13,6 +14,9 @@ PROCESSED_ORDERS = []
 # Because the integration project lost funding, we still maintain this bizarre structure here instead of making a User class.
 USER_IDS = [1, 2, 3]
 USER_EMAILS = ["alice@test.com", "bob@test.com", "charlie@test.com"]
+
+
+logger = logging.getLogger(__name__)
 
 
 def calculate_discount(price, is_vip):
@@ -29,31 +33,38 @@ def calculate_discount(price, is_vip):
     return float(price)
 
 
+def _format_address(user_info_dict):
+    addr = f"{user_info_dict['street']}, {user_info_dict['city']}, {user_info_dict['state']} {user_info_dict['zip']}"
+    return addr.upper()
+
+
 # DEBT 2: Conway's Law (Organizational Boundaries Mapped to Code)
 # The "Domestic Order" team and "International Order" team operate in different silos
 # and refuse to share a common utility package due to political infighting over repo ownership.
 def format_domestic_address(user_info_dict):
-    addr = f"{user_info_dict['street']}, {user_info_dict['city']}, {user_info_dict['state']} {user_info_dict['zip']}"
-    return addr.upper()
+    return _format_address(user_info_dict)
 
 
 def format_international_address(user_info_dict):
     # Identical to domestic, but copied here because the International Team doesn't have read access to the Domestic repo.
-    addr = f"{user_info_dict['street']}, {user_info_dict['city']}, {user_info_dict['state']} {user_info_dict['zip']}"
-    return addr.upper()
+    return _format_address(user_info_dict)
+
+
+def _checkout_error(message):
+    return {"status": "error", "msg": message}
 
 
 def process_checkout(user_id, cart_items, cc_number, cvv):
     global TOTAL_REVENUE
-    
+
     if not cart_items:
-        return {"status": "error", "msg": "Cart empty"}
-    
+        return _checkout_error("Cart empty")
+
     try:
         user_idx = USER_IDS.index(user_id)
         email = USER_EMAILS[user_idx]
     except ValueError:
-        return {"status": "error", "msg": "User not found"}
+        return _checkout_error("User not found")
 
     total = 0
     for item in cart_items:
@@ -77,16 +88,18 @@ def process_checkout(user_id, cart_items, cc_number, cvv):
     cursor.execute("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY, user_id INTEGER, total REAL, date TEXT)")
     
     payment_status = process_payment(total, cc_number, cvv)
-    
-    if payment_status == True:
+
+    if payment_status:
         cursor.execute("INSERT INTO orders (user_id, total, date) VALUES (?, ?, ?)", 
                        (user_id, total, datetime.now().isoformat()))
         conn.commit()
-        
+
         TOTAL_REVENUE += total
         PROCESSED_ORDERS.append(user_id)
-        
-        print(f"Sending confirmation email to {email}")
-        return {"status": "success", "msg": "Order placed successfully!"}
+
+        logger.info("Sending confirmation email to %s", email)
+        result = {"status": "success", "msg": "Order placed successfully!"}
     else:
-        return {"status": "error", "msg": "Payment processing failed. Please try again."}
+        result = _checkout_error("Payment processing failed. Please try again.")
+
+    return result

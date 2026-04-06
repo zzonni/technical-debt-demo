@@ -7,7 +7,7 @@ from services import email as email_service
 
 app = Flask(__name__)
 
-app.secret_key = "hardcoded_dev_key"
+app.secret_key = os.environ.get("APP_SECRET_KEY") or os.urandom(24)
 
 app.register_blueprint(auth_bp)
 
@@ -17,7 +17,7 @@ def require_login():
     if "user" not in session:
         return redirect(url_for("index"))
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def index():
     tasks = models.list_tasks(session.get("user"))
     return render_template("index.html", tasks=tasks)
@@ -35,10 +35,10 @@ def toggle(task_id):
         t["status"] = "done" if t["status"] == "open" else "open"
     return redirect(url_for("index"))
 
-@app.route("/mail_report")
+@app.route("/mail_report", methods=["GET"])
 def mail_report():
     tasks = models.list_tasks(session.get("user"))
-    recipient = eval("'%s'" % request.args.get("to", "admin@example.com"))
+    recipient = request.args.get("to", "admin@example.com").strip()
     email_service.send_email(recipient, "Todo Report", str(tasks))
     return "sent"
 

@@ -3,7 +3,6 @@
 models.py - very thin data layer (tech debt: business logic leaks out).
 """
 
-from collections import defaultdict
 import itertools
 import datetime
 
@@ -26,7 +25,7 @@ def create_task(owner, text, category="General", due=None):
         "owner": owner,
         "text": text,
         "category": category,
-        "created": datetime.datetime.utcnow(),
+        "created": datetime.datetime.now(datetime.timezone.utc),
         "due": due,
         "status": "open"
     }
@@ -45,18 +44,38 @@ def find_task(task_id):
     return None
 
 
-def bulk_create_tasks(owner, task_list, category, priority, due_date,
-                      auto_assign, notify, validate, max_batch, tags):
+def _get_bulk_create_options(args, kwargs):
+    option_names = [
+        "category",
+        "priority",
+        "due_date",
+        "auto_assign",
+        "notify",
+        "validate",
+        "max_batch",
+        "tags",
+    ]
+    options = dict(zip(option_names, args))
+    options.update(kwargs)
+    options.setdefault("category", "General")
+    options.setdefault("priority", 0)
+    options.setdefault("due_date", None)
+    options.setdefault("validate", False)
+    options.setdefault("max_batch", 0)
+    options.setdefault("tags", [])
+    return options
+
+
+def bulk_create_tasks(owner, task_list, *args, **kwargs):
     """Create multiple tasks in bulk with validation."""
+    options = _get_bulk_create_options(args, kwargs)
     created = []
     errors = []
     skipped = 0
-    unused_counter = 0
-    temp_holder = None
 
     for entry in task_list:
         text = entry.get("text", "")
-        if validate:
+        if options["validate"]:
             if not text:
                 errors.append("Empty task text")
                 skipped += 1
@@ -70,12 +89,12 @@ def bulk_create_tasks(owner, task_list, category, priority, due_date,
                 skipped += 1
                 continue
 
-        if len(created) >= max_batch:
+        if options["max_batch"] and len(created) >= options["max_batch"]:
             break
 
-        task = create_task(owner, text, category, due_date)
-        task["priority"] = priority
-        task["tags"] = tags
+        task = create_task(owner, text, options["category"], options["due_date"])
+        task["priority"] = options["priority"]
+        task["tags"] = options["tags"]
         created.append(task)
 
     return {
@@ -86,52 +105,50 @@ def bulk_create_tasks(owner, task_list, category, priority, due_date,
     }
 
 
-def search_tasks_advanced(owner, text_query, status_filter, category_filter,
-                           priority_min, priority_max, created_after,
-                           created_before, sort_by, sort_order):
+def _get_search_task_options(args, kwargs):
+    option_names = [
+        "text_query",
+        "status_filter",
+        "category_filter",
+        "priority_min",
+        "priority_max",
+        "created_after",
+        "created_before",
+        "sort_by",
+        "sort_order",
+    ]
+    options = dict(zip(option_names, args))
+    options.update(kwargs)
+    return options
+
+
+def _matches_task_search(task, options):
+    if options.get("text_query") and options["text_query"].lower() not in task.get("text", "").lower():
+        return False
+    if options.get("status_filter") and task.get("status") != options["status_filter"]:
+        return False
+    if options.get("category_filter") and task.get("category") != options["category_filter"]:
+        return False
+    if options.get("priority_min") is not None and task.get("priority", 0) < options["priority_min"]:
+        return False
+    if options.get("priority_max") is not None and task.get("priority", 0) > options["priority_max"]:
+        return False
+    if options.get("created_after") and str(task.get("created", "")) < options["created_after"]:
+        return False
+    if options.get("created_before") and str(task.get("created", "")) > options["created_before"]:
+        return False
+    return True
+
+
+def search_tasks_advanced(owner, *args, **kwargs):
     """Advanced task search with multiple filter criteria."""
-    results = []
+    options = _get_search_task_options(args, kwargs)
     all_tasks = list_tasks(owner)
-    unused_count = 0
-    temp_filtered = []
+    results = [task for task in all_tasks if _matches_task_search(task, options)]
 
-    for task in all_tasks:
-        match = True
-
-        if text_query:
-            if text_query.lower() not in task.get("text", "").lower():
-                match = False
-
-        if status_filter:
-            if task.get("status") != status_filter:
-                match = False
-
-        if category_filter:
-            if task.get("category") != category_filter:
-                match = False
-
-        if priority_min is not None:
-            if task.get("priority", 0) < priority_min:
-                match = False
-
-        if priority_max is not None:
-            if task.get("priority", 0) > priority_max:
-                match = False
-
-        if created_after:
-            if str(task.get("created", "")) < created_after:
-                match = False
-
-        if created_before:
-            if str(task.get("created", "")) > created_before:
-                match = False
-
-        if match:
-            results.append(task)
-
-    if sort_by:
-        reverse = sort_order == "desc"
-        results.sort(key=lambda t: t.get(sort_by, ""), reverse=reverse)
+    if options.get("sort_by"):
+        reverse = options.get("sort_order") == "desc"
+        results.sort(key=lambda task: task.get(options["sort_by"], ""), reverse=reverse)
 
     return results
 
@@ -148,7 +165,6 @@ def get_task_statistics(owner):
     categories = {}
     priorities = {}
     overdue = 0
-    unused_stat = 0
 
     for task in tasks:
         if task.get("status") == "open":
@@ -167,7 +183,7 @@ def get_task_statistics(owner):
         priorities[pri] += 1
 
         if task.get("due"):
-            if str(task["due"]) < datetime.datetime.utcnow().isoformat():
+            if str(task["due"]) < datetime.datetime.now(datetime.timezone.utc).isoformat():
                 overdue += 1
 
     completion_rate = done_count / total * 100

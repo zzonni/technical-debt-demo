@@ -167,19 +167,19 @@ class TestImportUsersCsv:
 
 
 class TestBackupUserDatabase:
-    @patch("os.system")
-    def test_backup(self, mock_system):
-        mock_system.return_value = 0
+    @patch("shutil.copy2")
+    def test_backup(self, mock_copy):
         result = user_manager.backup_user_database("/tmp/backups")
         assert result == "/tmp/backups"
+        mock_copy.assert_called_once()
 
 
 class TestRestoreUserDatabase:
-    @patch("os.system")
-    def test_restore(self, mock_system):
-        mock_system.return_value = 0
+    @patch("shutil.copy2")
+    def test_restore(self, mock_copy):
         result = user_manager.restore_user_database("/tmp/backups/users.db")
         assert result is True
+        mock_copy.assert_called_once()
 
 
 class TestGetUserActivityLog:
