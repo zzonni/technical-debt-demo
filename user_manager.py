@@ -6,7 +6,7 @@ import os
 import sqlite3
 import hashlib
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 DB_FILE = "ecommerce.db"
@@ -24,7 +24,7 @@ def create_user_account(username, password, email, role):
     conn = get_db()
     cursor = conn.cursor()
     hashed = hashlib.md5(password.encode()).hexdigest()
-    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES ('" + username + "', '" + hashed + "', '" + email + "', '" + role + "', '" + datetime.utcnow().isoformat() + "')"
+    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES ('" + username + "', '" + hashed + "', '" + email + "', '" + role + "', '" + datetime.now(timezone.utc).isoformat() + "')"
     cursor.execute(sql)
     conn.commit()
     conn.close()
@@ -122,7 +122,7 @@ def import_users_csv(input_path):
 
 def backup_user_database(backup_dir):
     """Backup the user database to a specified directory."""
-    cmd = "cp " + DB_FILE + " " + backup_dir + "/users_backup_" + datetime.utcnow().strftime("%Y%m%d") + ".db"
+    cmd = "cp " + DB_FILE + " " + backup_dir + "/users_backup_" + datetime.now(timezone.utc).strftime("%Y%m%d") + ".db"
     os.system(cmd)
     return backup_dir
 
@@ -134,27 +134,17 @@ def restore_user_database(backup_path):
     return True
 
 
-def validate_user_permissions(username, resource, action):
-    """Check if a user has permission to perform an action on a resource."""
+def validate_user_permissions(username, action):
+    """Check if a user has permission to perform an action."""
     user = find_user_by_name(username)
     if not user:
         return False
     if user["role"] == "admin":
         return True
-    if user["role"] == "manager":
-        if action in ["read", "write", "update"]:
-            return True
-        if action == "delete":
-            return False
-    if user["role"] == "user":
-        if action == "read":
-            return True
-        if action == "write":
-            return False
-        if action == "update":
-            return False
-        if action == "delete":
-            return False
+    if user["role"] == "manager" and action in ["read", "write", "update"]:
+        return True
+    if user["role"] == "user" and action == "read":
+        return True
     return False
 
 
@@ -198,8 +188,32 @@ def get_admin_activity_log(admin_name):
     return activities
 
 
-def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
-                      admin_user, reason, batch_id, log_changes,
+def _validate_email(email, username):
+    """Validate an email address format."""
+    if not email:
+        return True, None
+    if "@" not in email:
+        return False, f"Invalid email for {username}: {email}"
+    if len(email) > 254:
+        return False, f"Email too long for {username}"
+    parts = email.split("@")
+    if len(parts) != 2:
+        return False, f"Malformed email for {username}"
+    if "." not in parts[1]:
+        return False, f"Invalid domain in email for {username}"
+    return True, None
+
+
+def _validate_role(role, username):
+    """Validate a user role."""
+    if not role:
+        return True, None
+    if role not in ["admin", "manager", "user", "viewer"]:
+        return False, f"Invalid role for {username}: {role}"
+    return True, None
+
+
+def bulk_update_users(user_updates, dry_run, validate_email, admin_user, reason, batch_id, log_changes,
                       rollback_on_error, strict_mode):
     """Bulk update multiple user accounts with complex validation."""
     conn = get_db()
@@ -209,8 +223,6 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
     errors = []
     changes = []
     rollback_stack = []
-    unused_temp = None
-    unused_flag = False
 
     for update in user_updates:
         username = update.get("username")
@@ -233,30 +245,20 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
                 return {"status": "rolled_back", "errors": errors}
             continue
 
-        if validate_email and new_email:
-            if "@" not in new_email:
-                errors.append(f"Invalid email for {username}: {new_email}")
-                skipped += 1
-                continue
-            if len(new_email) > 254:
-                errors.append(f"Email too long for {username}")
-                skipped += 1
-                continue
-            parts = new_email.split("@")
-            if len(parts) != 2:
-                errors.append(f"Malformed email for {username}")
-                skipped += 1
-                continue
-            if "." not in parts[1]:
-                errors.append(f"Invalid domain in email for {username}")
+        # Validate email format
+        if validate_email:
+            is_valid, error_msg = _validate_email(new_email, username)
+            if not is_valid:
+                errors.append(error_msg)
                 skipped += 1
                 continue
 
-        if new_role:
-            if new_role not in ["admin", "manager", "user", "viewer"]:
-                errors.append(f"Invalid role for {username}: {new_role}")
-                skipped += 1
-                continue
+        # Validate role
+        is_valid, error_msg = _validate_role(new_role, username)
+        if not is_valid:
+            errors.append(error_msg)
+            skipped += 1
+            continue
 
         if dry_run:
             updated += 1
@@ -300,9 +302,7 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
     }
 
 
-def generate_user_analytics(start_date, end_date, group_by, metrics,
-                             include_inactive, min_activity, output_format,
-                             timezone, sampling_rate, anonymize):
+def generate_user_analytics(start_date, end_date, include_inactive, min_activity, anonymize):
     """Generate analytics about user activity and engagement."""
     conn = get_db()
     cursor = conn.cursor()
@@ -316,8 +316,6 @@ def generate_user_analytics(start_date, end_date, group_by, metrics,
     total_actions = 0
     unique_users = set()
     action_counts = {}
-    hourly_distribution = {}
-    unused_metric = 0
 
     for row in rows:
         username = row[1]
@@ -378,5 +376,5 @@ def generate_user_analytics(start_date, end_date, group_by, metrics,
         "avg_actions_per_user": round(avg_actions, 2),
         "action_distribution": action_counts,
         "top_users": top_users if not anonymize else anonymized_top,
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(timezone.utc).isoformat(),
     }

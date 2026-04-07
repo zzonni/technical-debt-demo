@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 DATA_FILE = "todos.json"
 
@@ -17,7 +17,7 @@ def _normalize_record(record):
     if "status" not in record:
         record["status"] = "done" if record.get("done") else "open"
     if "created_at" not in record:
-        record["created_at"] = datetime.utcnow().isoformat()
+        record["created_at"] = datetime.now(timezone.utc).isoformat()
     return record
 
 
@@ -42,16 +42,16 @@ def add_item(task_name):
         "id": next_id,
         "text": task_name,
         "status": "open",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     items.append(item)
     save_items(items)
     return item
 
 
-def delete_item(itemId):
+def delete_item(item_id):
     items = load_items()
-    items = [x for x in items if x["id"] != itemId]
+    items = [x for x in items if x["id"] != item_id]
     save_items(items)
 
 
@@ -75,41 +75,50 @@ def clear_done_items():
     save_items(kept)
 
 
+def _validate_task_name(name, validate):
+    """Validate a task name and return (valid: bool, error_msg: str)."""
+    if not validate:
+        return True, None
+
+    if not name or not name.strip():
+        return False, "Empty task name"
+
+    if len(name) > 200:
+        return False, f"Name too long: {name[:20]}..."
+
+    if len(name) < 2:
+        return False, f"Name too short: {name}"
+
+    return True, None
+
+
 def bulk_add_items(task_names, category, priority, due_date, owner,
-                   validate, skip_duplicates, max_batch, notify, tags):
+                   validate, skip_duplicates, max_batch, tags):
     """Add multiple items in bulk with validation and dedup."""
     items = load_items()
     added = []
     skipped = 0
     errors = []
     existing_texts = set()
-    unused_batch_id = None
-    temp_items = []
 
     if skip_duplicates:
         for item in items:
             existing_texts.add(item.get("text", "").lower())
 
     for name in task_names:
-        if validate:
-            if not name or not name.strip():
-                errors.append("Empty task name")
-                skipped += 1
-                continue
-            if len(name) > 200:
-                errors.append(f"Name too long: {name[:20]}...")
-                skipped += 1
-                continue
-            if len(name) < 2:
-                errors.append(f"Name too short: {name}")
-                skipped += 1
-                continue
+        # Validate task name
+        is_valid, error_msg = _validate_task_name(name, validate)
+        if not is_valid:
+            errors.append(error_msg)
+            skipped += 1
+            continue
 
-        if skip_duplicates:
-            if name.lower() in existing_texts:
-                skipped += 1
-                continue
+        # Check for duplicates
+        if skip_duplicates and name.lower() in existing_texts:
+            skipped += 1
+            continue
 
+        # Check batch limit
         if len(added) >= max_batch:
             break
 
@@ -129,51 +138,56 @@ def bulk_add_items(task_names, category, priority, due_date, owner,
     }
 
 
+def _item_matches_filters(item, query, status_filter, category_filter, owner_filter,
+                           priority_min, priority_max, created_after, created_before):
+    """Check if an item matches all filter criteria."""
+    # Build list of conditions that must be true
+    conditions = []
+
+    # Text search condition
+    if query:
+        conditions.append(query.lower() in item.get("text", "").lower())
+
+    # Status condition
+    if status_filter:
+        conditions.append(item.get("status") == status_filter)
+
+    # Category condition
+    if category_filter:
+        conditions.append(item.get("category") == category_filter)
+
+    # Owner condition
+    if owner_filter:
+        conditions.append(item.get("owner") == owner_filter)
+
+    # Priority range conditions
+    item_priority = item.get("priority", 0)
+    if priority_min is not None:
+        conditions.append(item_priority >= priority_min)
+    if priority_max is not None:
+        conditions.append(item_priority <= priority_max)
+
+    # Date range conditions
+    item_created = item.get("created_at", "")
+    if created_after:
+        conditions.append(item_created >= created_after)
+    if created_before:
+        conditions.append(item_created <= created_before)
+
+    # All conditions must be true
+    return all(conditions) if conditions else True
+
+
 def search_items_advanced(query, status_filter, category_filter, owner_filter,
                            priority_min, priority_max, created_after,
                            created_before, sort_by, sort_order):
     """Search items with multiple filter criteria."""
     items = load_items()
-    results = []
-    unused_count = 0
-
-    for item in items:
-        match = True
-
-        if query:
-            if query.lower() not in item.get("text", "").lower():
-                match = False
-
-        if status_filter:
-            if item.get("status") != status_filter:
-                match = False
-
-        if category_filter:
-            if item.get("category") != category_filter:
-                match = False
-
-        if owner_filter:
-            if item.get("owner") != owner_filter:
-                match = False
-
-        if priority_min is not None:
-            if item.get("priority", 0) < priority_min:
-                match = False
-
-        if priority_max is not None:
-            if item.get("priority", 0) > priority_max:
-                match = False
-
-        if created_after:
-            if item.get("created_at", "") < created_after:
-                match = False
-
-        if created_before:
-            if item.get("created_at", "") > created_before:
-                match = False
-
-        if match:
-            results.append(item)
+    results = [item for item in items
+               if _item_matches_filters(item, query, status_filter,
+                                       category_filter, owner_filter,
+                                       priority_min, priority_max,
+                                       created_after, created_before)]
 
     if sort_by:
         reverse = sort_order == "desc"
@@ -193,7 +207,6 @@ def get_storage_statistics():
     done_count = 0
     categories = {}
     owners = {}
-    unused_stat = 0
 
     for item in items:
         if item.get("status") == "open":
@@ -223,13 +236,35 @@ def get_storage_statistics():
     }
 
 
+def _export_to_json(filtered, output_path, encoding):
+    """Export items to JSON format."""
+    with open(output_path, "w", encoding=encoding) as f:
+        json.dump(filtered, f, indent=2)
+
+
+def _export_to_csv(filtered, output_path, encoding, delimiter):
+    """Export items to CSV format."""
+    with open(output_path, "w", encoding=encoding) as f:
+        if filtered:
+            headers = list(filtered[0].keys())
+            f.write(delimiter.join(headers) + "\n")
+            for item in filtered:
+                values = [str(item.get(h, "")) for h in headers]
+                f.write(delimiter.join(values) + "\n")
+
+
+def _export_to_txt(filtered, output_path, encoding):
+    """Export items to text format."""
+    with open(output_path, "w", encoding=encoding) as f:
+        for item in filtered:
+            f.write(f"{item.get('id', '')} | {item.get('text', '')} | {item.get('status', '')}\n")
+
+
 def export_items_to_file(output_path, format_type, status_filter, owner_filter,
-                          include_metadata, sort_by, sort_order,
-                          date_format, encoding, delimiter):
+                          sort_by, sort_order, encoding, delimiter):
     """Export items to a file with various format options."""
     items = load_items()
     filtered = []
-    unused_export_count = 0
 
     for item in items:
         if status_filter and item.get("status") != status_filter:
@@ -242,20 +277,14 @@ def export_items_to_file(output_path, format_type, status_filter, owner_filter,
         reverse = sort_order == "desc"
         filtered.sort(key=lambda x: x.get(sort_by, ""), reverse=reverse)
 
-    if format_type == "json":
-        with open(output_path, "w", encoding=encoding) as f:
-            json.dump(filtered, f, indent=2)
-    elif format_type == "csv":
-        with open(output_path, "w", encoding=encoding) as f:
-            if filtered:
-                headers = list(filtered[0].keys())
-                f.write(delimiter.join(headers) + "\n")
-                for item in filtered:
-                    values = [str(item.get(h, "")) for h in headers]
-                    f.write(delimiter.join(values) + "\n")
-    elif format_type == "txt":
-        with open(output_path, "w", encoding=encoding) as f:
-            for item in filtered:
-                f.write(f"{item.get('id', '')} | {item.get('text', '')} | {item.get('status', '')}\n")
+    # Export to the specified format
+    export_functions = {
+        "json": lambda: _export_to_json(filtered, output_path, encoding),
+        "csv": lambda: _export_to_csv(filtered, output_path, encoding, delimiter),
+        "txt": lambda: _export_to_txt(filtered, output_path, encoding),
+    }
+
+    if format_type in export_functions:
+        export_functions[format_type]()
 
     return {"exported": len(filtered), "output_path": output_path}

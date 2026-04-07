@@ -182,7 +182,7 @@ def process_batch_records_v3(records):
 
 def validate_and_transform_records(records, schema, strict_mode, coerce_types,
                                     default_values, on_error, max_errors,
-                                    log_level, batch_id, output_format):
+                                    batch_id):
     """Validate and transform records against a schema definition."""
     valid_records = []
     invalid_records = []
@@ -190,13 +190,9 @@ def validate_and_transform_records(records, schema, strict_mode, coerce_types,
     warning_count = 0
     coerced_count = 0
     skipped_count = 0
-    unused_tracker = {}
-    temp_buffer = []
 
     for idx, rec in enumerate(records):
         rec_errors = []
-        rec_warnings = []
-        transformed = {}
 
         for field_name, field_def in schema.items():
             value = rec.get(field_name)
@@ -204,7 +200,6 @@ def validate_and_transform_records(records, schema, strict_mode, coerce_types,
             field_type = field_def.get("type", "string")
             min_val = field_def.get("min")
             max_val = field_def.get("max")
-            pattern = field_def.get("pattern")
 
             if value is None:
                 if required:
@@ -308,12 +303,11 @@ def validate_and_transform_records(records, schema, strict_mode, coerce_types,
 
 def aggregate_data_by_field(records, group_field, agg_field, agg_func,
                              filter_func, include_empty, sort_result,
-                             limit, format_output, decimal_places):
+                             limit, decimal_places):
     """Aggregate data records by a grouping field."""
     groups = {}
     total_processed = 0
     skipped = 0
-    unused_agg = 0
 
     for rec in records:
         total_processed += 1
