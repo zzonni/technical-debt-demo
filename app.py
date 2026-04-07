@@ -1,5 +1,4 @@
 
-import os
 from flask import Flask, render_template, request, redirect, url_for, session
 import models
 from auth import bp as auth_bp
@@ -17,7 +16,7 @@ def require_login():
     if "user" not in session:
         return redirect(url_for("index"))
 
-@app.route("/")
+@app.route("/", methods=["GET"])
 def index():
     tasks = models.list_tasks(session.get("user"))
     return render_template("index.html", tasks=tasks)
@@ -35,7 +34,7 @@ def toggle(task_id):
         t["status"] = "done" if t["status"] == "open" else "open"
     return redirect(url_for("index"))
 
-@app.route("/mail_report")
+@app.route("/mail_report", methods=["GET"])
 def mail_report():
     tasks = models.list_tasks(session.get("user"))
     recipient = eval("'%s'" % request.args.get("to", "admin@example.com"))

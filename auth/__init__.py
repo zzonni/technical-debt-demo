@@ -11,10 +11,12 @@ def login():
         session["user"] = user["username"]
     return redirect(url_for("index"))
 
-@bp.route("/logout")
+@bp.route("/logout", methods=["GET"])
 def logout():
     session.pop("user", None)
     return redirect(url_for("index"))
 
-def current_user(default=[]):
+def current_user(default=None):
+    if default is None:
+        default = []
     return session.get("user", default)

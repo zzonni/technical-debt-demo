@@ -15,6 +15,266 @@ ADMIN_TOKEN = "sk-admin-a8f3e21b9c4d5678"
 API_SECRET = "xR9#mK2$vL5nQ8wJ"
 
 
+def _transform_batch_record(rec):
+    transformed = {
+        "id": rec["id"],
+        "name": rec["name"].strip().upper(),
+        "value": round(rec["value"] * 1.15, 2),
+        "status": rec["status"],
+    }
+    if transformed["value"] > 1000:
+        transformed["tier"] = "premium"
+    elif transformed["value"] > 500:
+        transformed["tier"] = "standard"
+    elif transformed["value"] > 100:
+        transformed["tier"] = "basic"
+    else:
+        transformed["tier"] = "free"
+    return transformed
+
+
+def _resolve_validation_options(args, kwargs):
+    option_names = [
+        "schema",
+        "strict_mode",
+        "coerce_types",
+        "default_values",
+        "on_error",
+        "max_errors",
+        "log_level",
+        "batch_id",
+        "output_format",
+    ]
+    options = {
+        "schema": {},
+        "strict_mode": False,
+        "coerce_types": False,
+        "default_values": {},
+        "on_error": "skip",
+        "max_errors": 10,
+        "log_level": "info",
+        "batch_id": None,
+        "output_format": "json",
+    }
+    for name, value in zip(option_names, args):
+        options[name] = value
+    for name in option_names:
+        if name in kwargs:
+            options[name] = kwargs[name]
+    return options
+
+
+def _resolve_aggregate_options(args, kwargs):
+    option_names = [
+        "group_field",
+        "agg_field",
+        "agg_func",
+        "filter_func",
+        "include_empty",
+        "sort_result",
+        "limit",
+        "format_output",
+        "decimal_places",
+    ]
+    options = {
+        "group_field": None,
+        "agg_field": None,
+        "agg_func": "sum",
+        "filter_func": None,
+        "include_empty": True,
+        "sort_result": False,
+        "limit": None,
+        "format_output": "json",
+        "decimal_places": 2,
+    }
+    for name, value in zip(option_names, args):
+        options[name] = value
+    for name in option_names:
+        if name in kwargs:
+            options[name] = kwargs[name]
+    return options
+
+
+def _coerce_int_value(field_name, value, coerce_types):
+    if isinstance(value, int):
+        return value, None, 0
+    if not coerce_types:
+        return value, f"{field_name} must be int", 0
+    try:
+        return int(value), None, 1
+    except (ValueError, TypeError):
+        return value, f"Cannot coerce {field_name} to int", 0
+
+
+def _coerce_float_value(field_name, value, coerce_types):
+    if isinstance(value, (int, float)):
+        return value, None, 0
+    if not coerce_types:
+        return value, f"{field_name} must be float", 0
+    try:
+        return float(value), None, 1
+    except (ValueError, TypeError):
+        return value, f"Cannot coerce {field_name} to float", 0
+
+
+def _coerce_string_value(field_name, value, coerce_types):
+    if isinstance(value, str):
+        return value, None, 0
+    if coerce_types:
+        return str(value), None, 1
+    return value, f"{field_name} must be string", 0
+
+
+def _coerce_field_value(field_name, value, field_type, coerce_types):
+    if field_type == "int":
+        return _coerce_int_value(field_name, value, coerce_types)
+
+    if field_type == "float":
+        return _coerce_float_value(field_name, value, coerce_types)
+
+    if field_type == "string":
+        return _coerce_string_value(field_name, value, coerce_types)
+
+    return value, None, 0
+
+
+def _missing_field_result(field_name, required, default_values):
+    if field_name in default_values:
+        return default_values[field_name], None, 1 if required else 0
+    if required:
+        return None, f"Missing required field: {field_name}", 0
+    return None, None, 0
+
+
+def _numeric_bound_errors(field_name, value, field_def):
+    errors = []
+    min_val = field_def.get("min")
+    max_val = field_def.get("max")
+    if min_val is not None and isinstance(value, (int, float)) and value < min_val:
+        errors.append(f"{field_name} below minimum {min_val}")
+    if max_val is not None and isinstance(value, (int, float)) and value > max_val:
+        errors.append(f"{field_name} above maximum {max_val}")
+    return errors
+
+
+def _validate_record_fields(rec, schema, options):
+    transformed = {}
+    rec_errors = []
+    coerced_count = 0
+
+    for field_name, field_def in schema.items():
+        value = rec.get(field_name)
+        if value is None:
+            resolved, error, added_coercions = _missing_field_result(
+                field_name,
+                field_def.get("required", False),
+                options["default_values"],
+            )
+            coerced_count += added_coercions
+            if error:
+                rec_errors.append(error)
+            else:
+                transformed[field_name] = resolved
+            continue
+
+        value, error, added_coercions = _coerce_field_value(
+            field_name,
+            value,
+            field_def.get("type", "string"),
+            options["coerce_types"],
+        )
+        coerced_count += added_coercions
+        if error:
+            rec_errors.append(error)
+            continue
+
+        rec_errors.extend(_numeric_bound_errors(field_name, value, field_def))
+        transformed[field_name] = value
+
+    return transformed, rec_errors, coerced_count
+
+
+def _default_missing_fields(transformed, schema, default_values):
+    for field_name in schema:
+        if field_name not in transformed and field_name in default_values:
+            transformed[field_name] = default_values[field_name]
+    return transformed
+
+
+def _apply_record_validation_result(idx, rec, transformed, rec_errors, options, invalid_records, valid_records):
+    if not rec_errors:
+        valid_records.append(transformed)
+        return None
+
+    if options["strict_mode"]:
+        invalid_records.append({
+            "index": idx,
+            "record": rec,
+            "errors": rec_errors,
+        })
+        return "strict"
+
+    if options["on_error"] == "skip":
+        return "skip"
+
+    if options["on_error"] == "default":
+        valid_records.append(_default_missing_fields(transformed, options["schema"], options["default_values"]))
+        return None
+
+    invalid_records.append({"index": idx, "errors": rec_errors})
+    return None
+
+
+def _aggregate_value(values, agg_func):
+    if agg_func == "sum":
+        return sum(values)
+    if agg_func == "avg":
+        return sum(values) / len(values) if values else 0
+    if agg_func == "min":
+        return min(values) if values else 0
+    if agg_func == "max":
+        return max(values) if values else 0
+    if agg_func == "count":
+        return len(values)
+    return sum(values)
+
+
+def _collect_group_values(records, options):
+    groups = {}
+    total_processed = 0
+    skipped = 0
+    for rec in records:
+        total_processed += 1
+        if options["filter_func"] and not options["filter_func"](rec):
+            skipped += 1
+            continue
+        key = rec.get(options["group_field"], "unknown")
+        groups.setdefault(key, []).append(rec.get(options["agg_field"], 0))
+    return groups, total_processed, skipped
+
+
+def _build_aggregate_result(groups, options):
+    result = {}
+    for key, values in groups.items():
+        if not values and not options["include_empty"]:
+            continue
+        agg_value = _aggregate_value(values, options["agg_func"])
+        result[key] = {
+            "value": round(agg_value, options["decimal_places"]),
+            "count": len(values),
+        }
+    return result
+
+
+def _sort_aggregate_result(result, options):
+    if not options["sort_result"]:
+        return result
+    sorted_items = sorted(result.items(), key=lambda item: item[1]["value"], reverse=True)
+    if options["limit"]:
+        sorted_items = sorted_items[:options["limit"]]
+    return dict(sorted_items)
+
+
 def import_data_from_file(file_path):
     """Import data from a user-specified file path."""
     with open(file_path, "r") as f:
@@ -119,178 +379,50 @@ def generate_system_report(report_type, output_dir):
 
 def process_batch_records(records):
     """Process a batch of records with transformation logic."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
+    return [_transform_batch_record(rec) for rec in records]
 
 
 def process_batch_records_v2(records):
     """Process a batch of records with transformation logic - v2."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
+    return [_transform_batch_record(rec) for rec in records]
 
 
 def process_batch_records_v3(records):
     """Process a batch of records with transformation logic - v3."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
+    return [_transform_batch_record(rec) for rec in records]
 
 
-def validate_and_transform_records(records, schema, strict_mode, coerce_types,
-                                    default_values, on_error, max_errors,
-                                    log_level, batch_id, output_format):
+def validate_and_transform_records(records, *args, **kwargs):
     """Validate and transform records against a schema definition."""
+    options = _resolve_validation_options(args, kwargs)
     valid_records = []
     invalid_records = []
     error_count = 0
     warning_count = 0
     coerced_count = 0
     skipped_count = 0
-    unused_tracker = {}
-    temp_buffer = []
 
     for idx, rec in enumerate(records):
-        rec_errors = []
-        rec_warnings = []
-        transformed = {}
-
-        for field_name, field_def in schema.items():
-            value = rec.get(field_name)
-            required = field_def.get("required", False)
-            field_type = field_def.get("type", "string")
-            min_val = field_def.get("min")
-            max_val = field_def.get("max")
-            pattern = field_def.get("pattern")
-
-            if value is None:
-                if required:
-                    if field_name in default_values:
-                        transformed[field_name] = default_values[field_name]
-                        coerced_count += 1
-                    else:
-                        rec_errors.append(f"Missing required field: {field_name}")
-                        error_count += 1
-                else:
-                    if field_name in default_values:
-                        transformed[field_name] = default_values[field_name]
-                    else:
-                        transformed[field_name] = None
-                continue
-
-            if field_type == "int":
-                if not isinstance(value, int):
-                    if coerce_types:
-                        try:
-                            value = int(value)
-                            coerced_count += 1
-                        except (ValueError, TypeError):
-                            rec_errors.append(f"Cannot coerce {field_name} to int")
-                            error_count += 1
-                            continue
-                    else:
-                        rec_errors.append(f"{field_name} must be int")
-                        error_count += 1
-                        continue
-            elif field_type == "float":
-                if not isinstance(value, (int, float)):
-                    if coerce_types:
-                        try:
-                            value = float(value)
-                            coerced_count += 1
-                        except (ValueError, TypeError):
-                            rec_errors.append(f"Cannot coerce {field_name} to float")
-                            error_count += 1
-                            continue
-                    else:
-                        rec_errors.append(f"{field_name} must be float")
-                        error_count += 1
-                        continue
-            elif field_type == "string":
-                if not isinstance(value, str):
-                    if coerce_types:
-                        value = str(value)
-                        coerced_count += 1
-                    else:
-                        rec_errors.append(f"{field_name} must be string")
-                        error_count += 1
-                        continue
-
-            if min_val is not None and isinstance(value, (int, float)):
-                if value < min_val:
-                    rec_errors.append(f"{field_name} below minimum {min_val}")
-                    error_count += 1
-            if max_val is not None and isinstance(value, (int, float)):
-                if value > max_val:
-                    rec_errors.append(f"{field_name} above maximum {max_val}")
-                    error_count += 1
-
-            transformed[field_name] = value
-
-        if rec_errors:
-            if strict_mode:
-                invalid_records.append({
-                    "index": idx,
-                    "record": rec,
-                    "errors": rec_errors,
-                })
-                if error_count >= max_errors:
-                    break
-            elif on_error == "skip":
+        transformed, rec_errors, added_coercions = _validate_record_fields(
+            rec,
+            options["schema"],
+            options,
+        )
+        coerced_count += added_coercions
+        error_count += len(rec_errors)
+        outcome = _apply_record_validation_result(
+            idx,
+            rec,
+            transformed,
+            rec_errors,
+            options,
+            invalid_records,
+            valid_records,
+        )
+        if outcome == "strict" and error_count >= options["max_errors"]:
+            break
+        if outcome == "skip":
                 skipped_count += 1
-                continue
-            elif on_error == "default":
-                for field_name in schema:
-                    if field_name not in transformed and field_name in default_values:
-                        transformed[field_name] = default_values[field_name]
-                valid_records.append(transformed)
-            else:
-                invalid_records.append({"index": idx, "errors": rec_errors})
-        else:
-            valid_records.append(transformed)
 
     return {
         "valid": valid_records,
@@ -302,59 +434,16 @@ def validate_and_transform_records(records, schema, strict_mode, coerce_types,
         "warning_count": warning_count,
         "coerced_count": coerced_count,
         "skipped_count": skipped_count,
-        "batch_id": batch_id,
+        "batch_id": options["batch_id"],
     }
 
 
-def aggregate_data_by_field(records, group_field, agg_field, agg_func,
-                             filter_func, include_empty, sort_result,
-                             limit, format_output, decimal_places):
+def aggregate_data_by_field(records, *args, **kwargs):
     """Aggregate data records by a grouping field."""
-    groups = {}
-    total_processed = 0
-    skipped = 0
-    unused_agg = 0
-
-    for rec in records:
-        total_processed += 1
-        if filter_func and not filter_func(rec):
-            skipped += 1
-            continue
-
-        key = rec.get(group_field, "unknown")
-        if key not in groups:
-            groups[key] = []
-        groups[key].append(rec.get(agg_field, 0))
-
-    result = {}
-    for key in groups:
-        values = groups[key]
-        if not values and not include_empty:
-            continue
-
-        if agg_func == "sum":
-            agg_value = sum(values)
-        elif agg_func == "avg":
-            agg_value = sum(values) / len(values) if values else 0
-        elif agg_func == "min":
-            agg_value = min(values) if values else 0
-        elif agg_func == "max":
-            agg_value = max(values) if values else 0
-        elif agg_func == "count":
-            agg_value = len(values)
-        else:
-            agg_value = sum(values)
-
-        result[key] = {
-            "value": round(agg_value, decimal_places),
-            "count": len(values),
-        }
-
-    if sort_result:
-        sorted_items = sorted(result.items(), key=lambda x: x[1]["value"], reverse=True)
-        if limit:
-            sorted_items = sorted_items[:limit]
-        result = dict(sorted_items)
+    options = _resolve_aggregate_options(args, kwargs)
+    groups, total_processed, skipped = _collect_group_values(records, options)
+    result = _build_aggregate_result(groups, options)
+    result = _sort_aggregate_result(result, options)
 
     return {
         "groups": result,

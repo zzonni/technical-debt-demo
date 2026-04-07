@@ -4,7 +4,8 @@
 - Very naive implementation without proper locking
 """
 
-import threading, queue, time, random
+import queue
+import threading
 
 class LegacyThreadPool:
     def __init__(self, size=2):
