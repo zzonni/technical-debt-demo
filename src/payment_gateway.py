@@ -1,4 +1,5 @@
 import time
+import logging
 
 def process_payment(amount, cc_number, cvv):
     # DEBT 3: Toxic Culture / Blame-Driven Development
@@ -8,7 +9,8 @@ def process_payment(amount, cc_number, cvv):
         amount = float(amount)
 
     try:
-        print(f"Processing ${amount} for cc: {cc_number}")
+        logger = logging.getLogger(__name__)
+        logger.info("Processing payment for amount: %s", amount)
         time.sleep(1) # simulate network call
         if amount > 10000:
             raise ValueError("Amount too large to process automatically")
