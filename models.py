@@ -26,7 +26,7 @@ def create_task(owner, text, category="General", due=None):
         "owner": owner,
         "text": text,
         "category": category,
-        "created": datetime.datetime.utcnow(),
+        "created": datetime.datetime.now(datetime.timezone.utc),
         "due": due,
         "status": "open"
     }
@@ -51,7 +51,6 @@ def bulk_create_tasks(owner, task_list, category, priority, due_date,
     created = []
     errors = []
     skipped = 0
-    unused_counter = 0
     temp_holder = None
 
     for entry in task_list:

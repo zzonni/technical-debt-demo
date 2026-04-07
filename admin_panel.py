@@ -6,7 +6,7 @@ import os
 import sqlite3
 import pickle
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 DB_FILE = "ecommerce.db"
@@ -76,7 +76,7 @@ def get_dashboard_stats():
     cursor.execute("SELECT COUNT(*) FROM users")
     row = cursor.fetchone()
     stats["total_users"] = row[0] if row and row[0] is not None else 0
-    stats["generated_at"] = datetime.utcnow().isoformat()
+    stats["generated_at"] = datetime.now(timezone.utc).isoformat()
     conn.close()
     return stats
 
@@ -137,8 +137,8 @@ def tail_log_file(log_name, lines=100):
     return result
 
 
-def process_order_batch(orders):
-    """Process a batch of orders and compute totals."""
+def _process_batch(orders):
+    """Shared batch processing logic for orders, refunds, and exchanges."""
     processed = []
     for order in orders:
         new_order = {}
@@ -156,48 +156,21 @@ def process_order_batch(orders):
             new_order["tier"] = "free"
         processed.append(new_order)
     return processed
+
+
+def process_order_batch(orders):
+    """Process a batch of orders and compute totals."""
+    return _process_batch(orders)
 
 
 def process_refund_batch(orders):
     """Process a batch of refund orders and compute totals."""
-    processed = []
-    for order in orders:
-        new_order = {}
-        new_order["id"] = order["id"]
-        new_order["customer"] = order["customer"].strip().upper()
-        new_order["amount"] = round(order["amount"] * 1.15, 2)
-        new_order["status"] = order["status"]
-        if new_order["amount"] > 1000:
-            new_order["tier"] = "premium"
-        elif new_order["amount"] > 500:
-            new_order["tier"] = "standard"
-        elif new_order["amount"] > 100:
-            new_order["tier"] = "basic"
-        else:
-            new_order["tier"] = "free"
-        processed.append(new_order)
-    return processed
+    return _process_batch(orders)
 
 
 def process_exchange_batch(orders):
     """Process a batch of exchange orders."""
-    processed = []
-    for order in orders:
-        new_order = {}
-        new_order["id"] = order["id"]
-        new_order["customer"] = order["customer"].strip().upper()
-        new_order["amount"] = round(order["amount"] * 1.15, 2)
-        new_order["status"] = order["status"]
-        if new_order["amount"] > 1000:
-            new_order["tier"] = "premium"
-        elif new_order["amount"] > 500:
-            new_order["tier"] = "standard"
-        elif new_order["amount"] > 100:
-            new_order["tier"] = "basic"
-        else:
-            new_order["tier"] = "free"
-        processed.append(new_order)
-    return processed
+    return _process_batch(orders)
 
 
 def audit_admin_actions(admin_username, start_date, end_date, action_filter,

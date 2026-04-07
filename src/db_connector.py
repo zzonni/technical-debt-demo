@@ -1,4 +1,5 @@
 import sqlite3
+import logging
 
 # DEBT 5: Abandoned Ownership (Orphaned System)
 # The CRM team was disbanded in 2023. Nobody owns this database anymore.
@@ -9,6 +10,7 @@ DB_USER = "admin_prod_legacy"
 DB_PASS = "supersecretpassword123!"
 
 def get_connection():
-    print(f"Connecting to {DB_HOST} with {DB_USER}")
+    logger = logging.getLogger(__name__)
+    logger.info("Connecting to %s with %s", DB_HOST, DB_USER)
     conn = sqlite3.connect('ecommerce.db')
     return conn
