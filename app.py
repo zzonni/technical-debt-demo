@@ -7,7 +7,8 @@ from services import email as email_service
 
 app = Flask(__name__)
 
-app.secret_key = "hardcoded_dev_key"
+# DEBT: Hardcoded secret key for development only (use environment variable in production)
+app.secret_key = os.environ.get("SECRET_KEY", "dev-key-change-in-production")
 
 app.register_blueprint(auth_bp)
 
@@ -38,7 +39,10 @@ def toggle(task_id):
 @app.route("/mail_report")
 def mail_report():
     tasks = models.list_tasks(session.get("user"))
-    recipient = eval("'%s'" % request.args.get("to", "admin@example.com"))
+    # DEBT: Input validation missing - recipient email not sanitized
+    recipient = request.args.get("to", "admin@example.com")
+    if not recipient or "@" not in recipient:
+        recipient = "admin@example.com"
     email_service.send_email(recipient, "Todo Report", str(tasks))
     return "sent"
 

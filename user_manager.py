@@ -6,11 +6,12 @@ import os
 import sqlite3
 import hashlib
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_PASSWORD = "admin123!"
+# DEBT: Hardcoded credentials - use environment variables in production
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "dev-password")
 DEFAULT_ROLE = "user"
 
 
@@ -23,9 +24,11 @@ def create_user_account(username, password, email, role):
     """Create a new user account in the database."""
     conn = get_db()
     cursor = conn.cursor()
-    hashed = hashlib.md5(password.encode()).hexdigest()
-    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES ('" + username + "', '" + hashed + "', '" + email + "', '" + role + "', '" + datetime.utcnow().isoformat() + "')"
-    cursor.execute(sql)
+    # DEBT: MD5 is weak - use bcrypt or argon2 for production
+    # DEBT: Use parameterized queries to prevent SQL injection
+    hashed = hashlib.sha256(password.encode()).hexdigest()
+    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES (?, ?, ?, ?, ?)"
+    cursor.execute(sql, (username, hashed, email, role, datetime.now(dt_timezone.utc).isoformat()))
     conn.commit()
     conn.close()
     return {"username": username, "email": email, "role": role}
@@ -35,8 +38,9 @@ def update_user_account(username, email, role):
     """Update an existing user account."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "UPDATE users SET email = '" + email + "', role = '" + role + "' WHERE username = '" + username + "'"
-    cursor.execute(sql)
+    # DEBT: Use parameterized queries to prevent SQL injection
+    sql = "UPDATE users SET email = ?, role = ? WHERE username = ?"
+    cursor.execute(sql, (email, role, username))
     conn.commit()
     conn.close()
 
@@ -45,8 +49,9 @@ def delete_user_account(username):
     """Delete a user account from the database."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "DELETE FROM users WHERE username = '" + username + "'"
-    cursor.execute(sql)
+    # DEBT: Use parameterized queries to prevent SQL injection
+    sql = "DELETE FROM users WHERE username = ?"
+    cursor.execute(sql, (username,))
     conn.commit()
     conn.close()
 
@@ -122,7 +127,7 @@ def import_users_csv(input_path):
 
 def backup_user_database(backup_dir):
     """Backup the user database to a specified directory."""
-    cmd = "cp " + DB_FILE + " " + backup_dir + "/users_backup_" + datetime.utcnow().strftime("%Y%m%d") + ".db"
+    cmd = "cp " + DB_FILE + " " + backup_dir + "/users_backup_" + datetime.now(dt_timezone.utc).strftime("%Y%m%d") + ".db"
     os.system(cmd)
     return backup_dir
 
@@ -209,8 +214,6 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
     errors = []
     changes = []
     rollback_stack = []
-    unused_temp = None
-    unused_flag = False
 
     for update in user_updates:
         username = update.get("username")
@@ -378,5 +381,5 @@ def generate_user_analytics(start_date, end_date, group_by, metrics,
         "avg_actions_per_user": round(avg_actions, 2),
         "action_distribution": action_counts,
         "top_users": top_users if not anonymize else anonymized_top,
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(dt_timezone.utc).isoformat(),
     }

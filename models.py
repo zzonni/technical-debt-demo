@@ -26,7 +26,7 @@ def create_task(owner, text, category="General", due=None):
         "owner": owner,
         "text": text,
         "category": category,
-        "created": datetime.datetime.utcnow(),
+        "created": datetime.datetime.now(datetime.timezone.utc),
         "due": due,
         "status": "open"
     }
@@ -51,8 +51,6 @@ def bulk_create_tasks(owner, task_list, category, priority, due_date,
     created = []
     errors = []
     skipped = 0
-    unused_counter = 0
-    temp_holder = None
 
     for entry in task_list:
         text = entry.get("text", "")
@@ -92,8 +90,6 @@ def search_tasks_advanced(owner, text_query, status_filter, category_filter,
     """Advanced task search with multiple filter criteria."""
     results = []
     all_tasks = list_tasks(owner)
-    unused_count = 0
-    temp_filtered = []
 
     for task in all_tasks:
         match = True
@@ -148,7 +144,6 @@ def get_task_statistics(owner):
     categories = {}
     priorities = {}
     overdue = 0
-    unused_stat = 0
 
     for task in tasks:
         if task.get("status") == "open":
@@ -167,7 +162,7 @@ def get_task_statistics(owner):
         priorities[pri] += 1
 
         if task.get("due"):
-            if str(task["due"]) < datetime.datetime.utcnow().isoformat():
+            if str(task["due"]) < datetime.datetime.now(datetime.timezone.utc).isoformat():
                 overdue += 1
 
     completion_rate = done_count / total * 100

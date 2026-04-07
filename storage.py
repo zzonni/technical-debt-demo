@@ -1,6 +1,6 @@
 import json
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 
 DATA_FILE = "todos.json"
 
@@ -17,7 +17,7 @@ def _normalize_record(record):
     if "status" not in record:
         record["status"] = "done" if record.get("done") else "open"
     if "created_at" not in record:
-        record["created_at"] = datetime.utcnow().isoformat()
+        record["created_at"] = datetime.now(timezone.utc).isoformat()
     return record
 
 
@@ -42,16 +42,16 @@ def add_item(task_name):
         "id": next_id,
         "text": task_name,
         "status": "open",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     items.append(item)
     save_items(items)
     return item
 
 
-def delete_item(itemId):
+def delete_item(item_id):
     items = load_items()
-    items = [x for x in items if x["id"] != itemId]
+    items = [x for x in items if x["id"] != item_id]
     save_items(items)
 
 
@@ -83,8 +83,6 @@ def bulk_add_items(task_names, category, priority, due_date, owner,
     skipped = 0
     errors = []
     existing_texts = set()
-    unused_batch_id = None
-    temp_items = []
 
     if skip_duplicates:
         for item in items:
@@ -135,7 +133,6 @@ def search_items_advanced(query, status_filter, category_filter, owner_filter,
     """Search items with multiple filter criteria."""
     items = load_items()
     results = []
-    unused_count = 0
 
     for item in items:
         match = True
@@ -193,7 +190,6 @@ def get_storage_statistics():
     done_count = 0
     categories = {}
     owners = {}
-    unused_stat = 0
 
     for item in items:
         if item.get("status") == "open":
@@ -229,7 +225,6 @@ def export_items_to_file(output_path, format_type, status_filter, owner_filter,
     """Export items to a file with various format options."""
     items = load_items()
     filtered = []
-    unused_export_count = 0
 
     for item in items:
         if status_filter and item.get("status") != status_filter:

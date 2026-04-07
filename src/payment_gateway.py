@@ -17,4 +17,4 @@ def process_payment(amount, cc_number, cvv):
         # DEBT 9: KPI-Driven Debt (Misaligned Incentives)
         # Swallowing exceptions here so our service's "Success Rate" SLI stays above 99.9%.
         # If we propagate the error naturally, our team misses the quarterly reliability bonus.
-        pass 
+        pass
