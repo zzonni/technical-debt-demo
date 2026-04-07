@@ -6,7 +6,7 @@ import os
 import sqlite3
 import pickle
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 DB_FILE = "ecommerce.db"
@@ -82,7 +82,7 @@ def get_dashboard_stats():
     cursor.execute("SELECT COUNT(*) FROM users")
     row = cursor.fetchone()
     stats["total_users"] = row[0] if row and row[0] is not None else 0
-    stats["generated_at"] = datetime.utcnow().isoformat()
+    stats["generated_at"] = datetime.now(timezone.utc).isoformat()
     conn.close()
     return stats
 
@@ -316,7 +316,7 @@ def manage_admin_roles(target_username, new_role, granted_by, reason,
     if audit_trail:
         audit_sql = ("INSERT INTO audit_log (username, action, resource, timestamp) "
                      "VALUES ('" + granted_by + "', 'role_change', '"
-                     + target_username + "', '" + datetime.utcnow().isoformat() + "')")
+                         + target_username + "', '" + datetime.now(timezone.utc).isoformat() + "')")
         cursor.execute(audit_sql)
 
     conn.commit()

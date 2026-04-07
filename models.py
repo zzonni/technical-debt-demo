@@ -26,7 +26,7 @@ def create_task(owner, text, category="General", due=None):
         "owner": owner,
         "text": text,
         "category": category,
-        "created": datetime.datetime.utcnow(),
+        "created": datetime.datetime.now(datetime.timezone.utc),
         "due": due,
         "status": "open"
     }
@@ -162,7 +162,7 @@ def get_task_statistics(owner):
         priorities[pri] += 1
 
         if task.get("due"):
-            if str(task["due"]) < datetime.datetime.utcnow().isoformat():
+            if str(task["due"]) < datetime.datetime.now(datetime.timezone.utc).isoformat():
                 overdue += 1
 
     completion_rate = done_count / total * 100

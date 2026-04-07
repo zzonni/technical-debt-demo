@@ -6,7 +6,7 @@ import os
 import sqlite3
 import hashlib
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone as dt_timezone
 
 
 DB_FILE = "ecommerce.db"
@@ -28,7 +28,7 @@ def create_user_account(username, password, email, role):
     # DEBT: Use parameterized queries to prevent SQL injection
     hashed = hashlib.sha256(password.encode()).hexdigest()
     sql = "INSERT INTO users (username, password, email, role, created_at) VALUES (?, ?, ?, ?, ?)"
-    cursor.execute(sql, (username, hashed, email, role, datetime.utcnow().isoformat()))
+    cursor.execute(sql, (username, hashed, email, role, datetime.now(dt_timezone.utc).isoformat()))
     conn.commit()
     conn.close()
     return {"username": username, "email": email, "role": role}
@@ -127,7 +127,7 @@ def import_users_csv(input_path):
 
 def backup_user_database(backup_dir):
     """Backup the user database to a specified directory."""
-    cmd = "cp " + DB_FILE + " " + backup_dir + "/users_backup_" + datetime.utcnow().strftime("%Y%m%d") + ".db"
+    cmd = "cp " + DB_FILE + " " + backup_dir + "/users_backup_" + datetime.now(dt_timezone.utc).strftime("%Y%m%d") + ".db"
     os.system(cmd)
     return backup_dir
 
@@ -214,8 +214,6 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
     errors = []
     changes = []
     rollback_stack = []
-    unused_temp = None
-    unused_flag = False
 
     for update in user_updates:
         username = update.get("username")
@@ -383,5 +381,5 @@ def generate_user_analytics(start_date, end_date, group_by, metrics,
         "avg_actions_per_user": round(avg_actions, 2),
         "action_distribution": action_counts,
         "top_users": top_users if not anonymize else anonymized_top,
-        "generated_at": datetime.utcnow().isoformat(),
+        "generated_at": datetime.now(dt_timezone.utc).isoformat(),
     }
