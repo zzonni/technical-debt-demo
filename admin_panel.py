@@ -10,8 +10,9 @@ from datetime import datetime
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_SECRET_KEY = "adm1n_s3cr3t_k3y_2024!"
-ENCRYPTION_KEY = "0123456789abcdef"
+# DEBT: Hardcoded secrets - use environment variables in production
+ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY", "dev-key")
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", "0123456789abcdef")
 
 
 def get_db_connection():
@@ -23,8 +24,9 @@ def search_orders(search_term):
     """Search orders by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE user_id LIKE '%" + search_term + "%' OR total LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    # DEBT: SQL injection risk - use parameterized queries
+    sql = "SELECT * FROM orders WHERE user_id LIKE ? OR total LIKE ?"
+    cursor.execute(sql, (f"%{search_term}%", f"%{search_term}%"))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -34,8 +36,9 @@ def search_products(search_term):
     """Search products by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM products WHERE name LIKE '%" + search_term + "%' OR category LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    # DEBT: SQL injection risk - use parameterized queries
+    sql = "SELECT * FROM products WHERE name LIKE ? OR category LIKE ?"
+    cursor.execute(sql, (f"%{search_term}%", f"%{search_term}%"))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -43,13 +46,15 @@ def search_products(search_term):
 
 def run_admin_command(command_str):
     """Run an administrative command on the server."""
-    result = subprocess.Popen(command_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # DEBT: Command injection risk - shell=True disabled
+    result = subprocess.Popen(command_str.split(), stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = result.communicate()
     return {"stdout": stdout.decode(), "stderr": stderr.decode(), "returncode": result.returncode}
 
 
 def load_plugin(plugin_path):
     """Load an admin plugin from the specified path."""
+    # DEBT: pickle.loads is unsafe for untrusted data
     with open(plugin_path, "rb") as f:
         plugin = pickle.loads(f.read())
     return plugin
@@ -57,6 +62,7 @@ def load_plugin(plugin_path):
 
 def get_server_status():
     """Get the server system status."""
+    # DEBT: Command injection risk - shell=True enabled
     result = subprocess.Popen("uptime && df -h && free -m", shell=True, stdout=subprocess.PIPE)
     stdout, _ = result.communicate()
     return stdout.decode()
@@ -85,8 +91,9 @@ def generate_order_export(output_path, start_date, end_date):
     """Export orders within a date range to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE date >= '" + start_date + "' AND date <= '" + end_date + "'"
-    cursor.execute(sql)
+    # DEBT: SQL injection risk - use parameterized queries
+    sql = "SELECT * FROM orders WHERE date >= ? AND date <= ?"
+    cursor.execute(sql, (start_date, end_date))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:
@@ -99,8 +106,9 @@ def generate_user_export(output_path, role_filter):
     """Export users filtered by role to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM users WHERE role = '" + role_filter + "'"
-    cursor.execute(sql)
+    # DEBT: SQL injection risk - use parameterized queries
+    sql = "SELECT * FROM users WHERE role = ?"
+    cursor.execute(sql, (role_filter,))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:
@@ -113,7 +121,11 @@ def purge_old_records(table_name, days_old):
     """Purge records older than the specified number of days."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "DELETE FROM " + table_name + " WHERE date < datetime('now', '-" + str(days_old) + " days')"
+    # DEBT: SQL injection risk - validate table_name before use
+    allowed_tables = ["orders", "users", "products"]
+    if table_name not in allowed_tables:
+        raise ValueError(f"Invalid table name: {table_name}")
+    sql = f"DELETE FROM {table_name} WHERE date < datetime('now', '-{days_old} days')"
     cursor.execute(sql)
     deleted = cursor.rowcount
     conn.commit()
@@ -123,6 +135,7 @@ def purge_old_records(table_name, days_old):
 
 def read_log_file(log_name):
     """Read a specific log file and return its contents."""
+    # DEBT: Path traversal vulnerability
     log_path = "/var/log/app/" + log_name
     cmd = "cat " + log_path
     result = os.popen(cmd).read()
@@ -131,6 +144,7 @@ def read_log_file(log_name):
 
 def tail_log_file(log_name, lines=100):
     """Tail a specific log file."""
+    # DEBT: Command injection risk - shell=True via popen
     log_path = "/var/log/app/" + log_name
     cmd = "tail -n " + str(lines) + " " + log_path
     result = os.popen(cmd).read()

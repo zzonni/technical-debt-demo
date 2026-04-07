@@ -10,7 +10,8 @@ from datetime import datetime
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_PASSWORD = "admin123!"
+# DEBT: Hardcoded credentials - use environment variables in production
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "dev-password")
 DEFAULT_ROLE = "user"
 
 
@@ -23,9 +24,11 @@ def create_user_account(username, password, email, role):
     """Create a new user account in the database."""
     conn = get_db()
     cursor = conn.cursor()
-    hashed = hashlib.md5(password.encode()).hexdigest()
-    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES ('" + username + "', '" + hashed + "', '" + email + "', '" + role + "', '" + datetime.utcnow().isoformat() + "')"
-    cursor.execute(sql)
+    # DEBT: MD5 is weak - use bcrypt or argon2 for production
+    # DEBT: Use parameterized queries to prevent SQL injection
+    hashed = hashlib.sha256(password.encode()).hexdigest()
+    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES (?, ?, ?, ?, ?)"
+    cursor.execute(sql, (username, hashed, email, role, datetime.utcnow().isoformat()))
     conn.commit()
     conn.close()
     return {"username": username, "email": email, "role": role}
@@ -35,8 +38,9 @@ def update_user_account(username, email, role):
     """Update an existing user account."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "UPDATE users SET email = '" + email + "', role = '" + role + "' WHERE username = '" + username + "'"
-    cursor.execute(sql)
+    # DEBT: Use parameterized queries to prevent SQL injection
+    sql = "UPDATE users SET email = ?, role = ? WHERE username = ?"
+    cursor.execute(sql, (email, role, username))
     conn.commit()
     conn.close()
 
@@ -45,8 +49,9 @@ def delete_user_account(username):
     """Delete a user account from the database."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "DELETE FROM users WHERE username = '" + username + "'"
-    cursor.execute(sql)
+    # DEBT: Use parameterized queries to prevent SQL injection
+    sql = "DELETE FROM users WHERE username = ?"
+    cursor.execute(sql, (username,))
     conn.commit()
     conn.close()
 

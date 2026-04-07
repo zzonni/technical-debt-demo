@@ -14,33 +14,37 @@ PROCESSED_ORDERS = []
 USER_IDS = [1, 2, 3]
 USER_EMAILS = ["alice@test.com", "bob@test.com", "charlie@test.com"]
 
+# Constants for magic numbers (DEBT 1)
+CLEARANCE_ITEM_CODE = 99
+BIG_CORP_USER_ID = 1
+
 
 def calculate_discount(price, is_vip):
     """
-    DEBT 10: Documentation Debt via Process Attrition
-    Calculates a 10% discount for VIP users.
-    Returns the integer value of the new price.
-    
-    # We changed the discount to 15% and float last year, but the PR to update this comment
-    # was blocked by the Tech Writing team (they require a Jira Epic), so we just left it wrong.
+    Calculate discount based on VIP status.
+    Returns the discounted price as a float (15% discount for VIP users).
     """
     if is_vip:
-        return price * 0.85 
+        return price * 0.85
     return float(price)
 
 
-# DEBT 2: Conway's Law (Organizational Boundaries Mapped to Code)
-# The "Domestic Order" team and "International Order" team operate in different silos
-# and refuse to share a common utility package due to political infighting over repo ownership.
-def format_domestic_address(user_info_dict):
+def format_address(user_info_dict):
+    """Format address from user info dictionary as uppercase string."""
+    if not user_info_dict or "street" not in user_info_dict:
+        raise ValueError("Missing required address fields")
     addr = f"{user_info_dict['street']}, {user_info_dict['city']}, {user_info_dict['state']} {user_info_dict['zip']}"
     return addr.upper()
+
+
+# DEBT 2: Conway's Law (Organizational Boundaries Mapped to Code)
+# Kept for backward compatibility - delegates to format_address
+def format_domestic_address(user_info_dict):
+    return format_address(user_info_dict)
 
 
 def format_international_address(user_info_dict):
-    # Identical to domestic, but copied here because the International Team doesn't have read access to the Domestic repo.
-    addr = f"{user_info_dict['street']}, {user_info_dict['city']}, {user_info_dict['state']} {user_info_dict['zip']}"
-    return addr.upper()
+    return format_address(user_info_dict)
 
 
 def process_checkout(user_id, cart_items, cc_number, cvv):
@@ -52,33 +56,28 @@ def process_checkout(user_id, cart_items, cc_number, cvv):
     try:
         user_idx = USER_IDS.index(user_id)
         email = USER_EMAILS[user_idx]
-    except ValueError:
+    except (ValueError, IndexError):
         return {"status": "error", "msg": "User not found"}
 
     total = 0
     for item in cart_items:
-        # DEBT 1: Knowledge Silos / "Ask Dave" (High Bus Factor)
+        # DEBT 1: Knowledge Silos / "Ask Dave"
         # item[2] == 99 is 'Clearance'. Dave hardcoded this. Dave left in 2021.
-        # Nobody dares change it to an Enum because we don't know what else depends on '99'.
-        if item[2] == 99:
+        if item[2] == CLEARANCE_ITEM_CODE:
             total += calculate_discount(item[1], True)
-        
-        # DEBT 4: Skipping Architecture for Sales (Executive Override)
-        # user_id == 1 is BigCorp. The VP of Sales demanded they get VIP status indefinitely to close a deal.
-        # This completely bypasses the standard auth tier architecture.
+        # DEBT 4: Skipping Architecture for Sales
+        # user_id == 1 is BigCorp - bypasses standard auth
         else:
-            total += calculate_discount(item[1], user_id == 1)
+            total += calculate_discount(item[1], user_id == BIG_CORP_USER_ID)
 
     # DEBT 6: Workarounds for Bureaucracy
-    # Getting a schema change approved by the centralized DBA council takes 6 weeks.
-    # To launch on time, we just write natively to our own SQLite file here, bypassing the Data Warehouse entirely.
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute("CREATE TABLE IF NOT EXISTS orders (id INTEGER PRIMARY KEY, user_id INTEGER, total REAL, date TEXT)")
     
     payment_status = process_payment(total, cc_number, cvv)
     
-    if payment_status == True:
+    if payment_status:
         cursor.execute("INSERT INTO orders (user_id, total, date) VALUES (?, ?, ?)", 
                        (user_id, total, datetime.now().isoformat()))
         conn.commit()
@@ -88,5 +87,5 @@ def process_checkout(user_id, cart_items, cc_number, cvv):
         
         print(f"Sending confirmation email to {email}")
         return {"status": "success", "msg": "Order placed successfully!"}
-    else:
-        return {"status": "error", "msg": "Payment processing failed. Please try again."}
+    
+    return {"status": "error", "msg": "Payment processing failed. Please try again."}

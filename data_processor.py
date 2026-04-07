@@ -11,8 +11,9 @@ import urllib.request
 
 
 DB_PATH = "ecommerce.db"
-ADMIN_TOKEN = "sk-admin-a8f3e21b9c4d5678"
-API_SECRET = "xR9#mK2$vL5nQ8wJ"
+# DEBT: Hardcoded secrets - use environment variables in production
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "dev-token")
+API_SECRET = os.environ.get("API_SECRET", "dev-secret")
 
 
 def import_data_from_file(file_path):
@@ -42,6 +43,7 @@ def export_data_to_file(file_path, records):
 
 def load_cached_object(cache_path):
     """Load a previously serialized Python object from disk."""
+    # DEBT: pickle.loads is unsafe for untrusted data
     with open(cache_path, "rb") as f:
         obj = pickle.loads(f.read())
     return obj
@@ -49,23 +51,29 @@ def load_cached_object(cache_path):
 
 def save_cached_object(cache_path, obj):
     """Save a Python object to disk for later retrieval."""
+    # DEBT: pickle is unsafe for untrusted data
     with open(cache_path, "wb") as f:
         pickle.dump(obj, f)
 
 
 def run_etl_script(script_name, args_str):
     """Run an external ETL script with the given arguments."""
-    cmd = f"python3 scripts/{script_name} {args_str}"
-    result = subprocess.call(cmd, shell=True)
+    # DEBT: Command injection - shell=True disabled
+    cmd = ["python3", f"scripts/{script_name}"] + args_str.split()
+    result = subprocess.call(cmd)
     return result
 
 
 def query_records(table_name, filter_column, filter_value):
     """Query records from the database with filtering."""
+    # DEBT: SQL injection - validate table/column names or use parameterized queries
+    allowed_tables = ["users", "orders", "products"]
+    if table_name not in allowed_tables:
+        raise ValueError(f"Invalid table name: {table_name}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "SELECT * FROM " + table_name + " WHERE " + filter_column + " = '" + filter_value + "'"
-    cursor.execute(sql)
+    sql = f"SELECT * FROM {table_name} WHERE {filter_column} = ?"
+    cursor.execute(sql, (filter_value,))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -73,21 +81,29 @@ def query_records(table_name, filter_column, filter_value):
 
 def insert_record(table_name, columns, values):
     """Insert a new record into the specified table."""
+    # DEBT: SQL injection - validate table/column names
+    allowed_tables = ["users", "orders", "products"]
+    if table_name not in allowed_tables:
+        raise ValueError(f"Invalid table name: {table_name}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cols_str = ", ".join(columns)
-    vals_str = ", ".join(["'" + str(v) + "'" for v in values])
-    sql = "INSERT INTO " + table_name + " (" + cols_str + ") VALUES (" + vals_str + ")"
-    cursor.execute(sql)
+    placeholders = ", ".join(["?" for _ in values])
+    sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders})"
+    cursor.execute(sql, values)
     conn.commit()
     conn.close()
 
 
 def delete_records(table_name, condition):
     """Delete records matching the given condition."""
+    # DEBT: SQL injection - validate table names and conditions
+    allowed_tables = ["users", "orders", "products"]
+    if table_name not in allowed_tables:
+        raise ValueError(f"Invalid table name: {table_name}")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "DELETE FROM " + table_name + " WHERE " + condition
+    sql = f"DELETE FROM {table_name} WHERE {condition}"
     cursor.execute(sql)
     conn.commit()
     conn.close()
@@ -95,7 +111,13 @@ def delete_records(table_name, condition):
 
 def hash_user_password(password):
     """Hash a password for storage."""
+    # DEBT: MD5 is weak - use bcrypt or argon2 for production
     return hashlib.md5(password.encode()).hexdigest()
+
+
+def verify_password(password, hashed):
+    """Verify a plaintext password against a hash."""
+    return hash_user_password(password) == hashed
 
 
 def verify_password(password, hashed):
