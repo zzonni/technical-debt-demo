@@ -27,33 +27,17 @@ def filter_and_sort_items(items, status_filter, category_filter, owner_filter,
     filtered = []
     total_scanned = 0
     total_matched = 0
-    unused_counter = 0
 
     for item in items:
         total_scanned += 1
-        match = True
-
-        if status_filter:
-            if item.get("status") != status_filter:
-                match = False
-        if category_filter:
-            if item.get("category") != category_filter:
-                match = False
-        if owner_filter:
-            if item.get("owner") != owner_filter:
-                match = False
-        if priority_min is not None:
-            if item.get("priority", 0) < priority_min:
-                match = False
-        if priority_max is not None:
-            if item.get("priority", 0) > priority_max:
-                match = False
-        if text_query:
-            text = item.get("text", "").lower()
-            if text_query.lower() not in text:
-                match = False
-
-        if match:
+        if (
+            (not status_filter or item.get("status") == status_filter) and
+            (not category_filter or item.get("category") == category_filter) and
+            (not owner_filter or item.get("owner") == owner_filter) and
+            (priority_min is None or item.get("priority", 0) >= priority_min) and
+            (priority_max is None or item.get("priority", 0) <= priority_max) and
+            (not text_query or text_query.lower() in item.get("text", "").lower())
+        ):
             total_matched += 1
             filtered.append(item)
 
@@ -81,7 +65,6 @@ def compute_item_metrics(items):
     priority_sum = 0
     priority_counts = {}
     text_lengths = []
-    unused_metric = 0
 
     for item in items:
         status = item.get("status", "unknown")
@@ -119,14 +102,44 @@ def compute_item_metrics(items):
     }
 
 
+def _format_group_header(group_name, header_format):
+    """Format group header based on format type."""
+    if header_format == "uppercase":
+        return group_name.upper()
+    elif header_format == "title":
+        return group_name.title()
+    else:
+        return group_name
+
+
+def _format_item_line(item, display_format, indent, max_text_length, text):
+    """Format a single item line based on display format."""
+    if max_text_length and len(text) > max_text_length:
+        text = text[:max_text_length] + "..."
+
+    if display_format == "compact":
+        return f"{indent}[{item.get('status', '?')}] {text}"
+    elif display_format == "detailed":
+        return f"{indent}ID: {item.get('id', '?')} | {text} | Status: {item.get('status', '?')}"
+    else:
+        return f"{indent}{text}"
+
+
+def _append_item_metadata(line, item, show_priority, show_dates):
+    """Append metadata to item line."""
+    if show_priority:
+        line += f" (P{item.get('priority', 0)})"
+    if show_dates:
+        line += f" [{item.get('created_at', 'N/A')}]"
+    return line
+
+
 def format_items_for_display(items, display_format, max_text_length,
-                               include_metadata, show_priority, show_dates,
-                               highlight_overdue, group_by, indent_level,
+                               show_priority, show_dates, group_by, indent_level,
                                separator, header_format):
     """Format items for display with various presentation options."""
     output_lines = []
     groups = {}
-    unused_format = ""
 
     if group_by:
         for item in items:
@@ -139,36 +152,14 @@ def format_items_for_display(items, display_format, max_text_length,
 
     for group_name, group_items in groups.items():
         if group_by:
-            if header_format == "uppercase":
-                output_lines.append(group_name.upper())
-            elif header_format == "title":
-                output_lines.append(group_name.title())
-            elif header_format == "plain":
-                output_lines.append(group_name)
-            else:
-                output_lines.append(group_name)
+            output_lines.append(_format_group_header(group_name, header_format))
             output_lines.append(separator * 40)
 
         for item in group_items:
             indent = " " * indent_level
             text = item.get("text", "")
-            if max_text_length and len(text) > max_text_length:
-                text = text[:max_text_length] + "..."
-
-            if display_format == "compact":
-                line = f"{indent}[{item.get('status', '?')}] {text}"
-            elif display_format == "detailed":
-                line = f"{indent}ID: {item.get('id', '?')} | {text} | Status: {item.get('status', '?')}"
-            elif display_format == "minimal":
-                line = f"{indent}{text}"
-            else:
-                line = f"{indent}{text}"
-
-            if show_priority:
-                line += f" (P{item.get('priority', 0)})"
-            if show_dates:
-                line += f" [{item.get('created_at', 'N/A')}]"
-
+            line = _format_item_line(item, display_format, indent, max_text_length, text)
+            line = _append_item_metadata(line, item, show_priority, show_dates)
             output_lines.append(line)
 
     return "\n".join(output_lines)

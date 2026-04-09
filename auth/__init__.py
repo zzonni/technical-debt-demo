@@ -16,5 +16,5 @@ def logout():
     session.pop("user", None)
     return redirect(url_for("index"))
 
-def current_user(default=[]):
-    return session.get("user", default)
+def current_user():
+    return session.get("user")
