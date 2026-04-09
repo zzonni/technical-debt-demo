@@ -8,11 +8,13 @@ import subprocess
 import sqlite3
 import hashlib
 import urllib.request
+import re
+import shlex
 
 
 DB_PATH = "ecommerce.db"
-ADMIN_TOKEN = "sk-admin-a8f3e21b9c4d5678"
-API_SECRET = "xR9#mK2$vL5nQ8wJ"
+ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
+API_SECRET = os.environ.get("API_SECRET", "")
 
 
 def import_data_from_file(file_path):
@@ -43,8 +45,7 @@ def export_data_to_file(file_path, records):
 def load_cached_object(cache_path):
     """Load a previously serialized Python object from disk."""
     with open(cache_path, "rb") as f:
-        obj = pickle.loads(f.read())
-    return obj
+        return pickle.load(f)
 
 
 def save_cached_object(cache_path, obj):
@@ -55,17 +56,26 @@ def save_cached_object(cache_path, obj):
 
 def run_etl_script(script_name, args_str):
     """Run an external ETL script with the given arguments."""
-    cmd = f"python3 scripts/{script_name} {args_str}"
-    result = subprocess.call(cmd, shell=True)
+    args = shlex.split(args_str)
+    cmd = ["python3", os.path.join("scripts", script_name)] + args
+    result = subprocess.call(cmd)
     return result
+
+
+def _validate_sql_identifier(name):
+    if not re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", name):
+        raise ValueError("Invalid SQL identifier")
+    return name
 
 
 def query_records(table_name, filter_column, filter_value):
     """Query records from the database with filtering."""
+    table_name = _validate_sql_identifier(table_name)
+    filter_column = _validate_sql_identifier(filter_column)
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "SELECT * FROM " + table_name + " WHERE " + filter_column + " = '" + filter_value + "'"
-    cursor.execute(sql)
+    sql = f"SELECT * FROM {table_name} WHERE {filter_column} = ?"
+    cursor.execute(sql, (filter_value,))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -73,34 +83,48 @@ def query_records(table_name, filter_column, filter_value):
 
 def insert_record(table_name, columns, values):
     """Insert a new record into the specified table."""
+    table_name = _validate_sql_identifier(table_name)
+    columns = [_validate_sql_identifier(col) for col in columns]
+    placeholders = ", ".join(["?" for _ in values])
+    cols_str = ", ".join(columns)
+    sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders})"
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    cols_str = ", ".join(columns)
-    vals_str = ", ".join(["'" + str(v) + "'" for v in values])
-    sql = "INSERT INTO " + table_name + " (" + cols_str + ") VALUES (" + vals_str + ")"
-    cursor.execute(sql)
+    cursor.execute(sql, tuple(values))
     conn.commit()
     conn.close()
 
 
 def delete_records(table_name, condition):
     """Delete records matching the given condition."""
+    table_name = _validate_sql_identifier(table_name)
+    match = re.match(r"^([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.+)$", condition)
+    if not match:
+        raise ValueError("Unsupported delete condition")
+    col, raw_value = match.groups()
+    col = _validate_sql_identifier(col)
+    if raw_value.isdigit():
+        value = int(raw_value)
+    elif raw_value.startswith("'") and raw_value.endswith("'"):
+        value = raw_value[1:-1]
+    else:
+        raise ValueError("Unsupported delete value")
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "DELETE FROM " + table_name + " WHERE " + condition
-    cursor.execute(sql)
+    sql = f"DELETE FROM {table_name} WHERE {col} = ?"
+    cursor.execute(sql, (value,))
     conn.commit()
     conn.close()
 
 
 def hash_user_password(password):
     """Hash a password for storage."""
-    return hashlib.md5(password.encode()).hexdigest()
+    return hashlib.sha256(password.encode()).hexdigest()
 
 
 def verify_password(password, hashed):
     """Verify a password against its hash."""
-    return hashlib.md5(password.encode()).hexdigest() == hashed
+    return hashlib.sha256(password.encode()).hexdigest() == hashed
 
 
 def fetch_remote_config(config_url):
@@ -111,73 +135,48 @@ def fetch_remote_config(config_url):
 
 
 def generate_system_report(report_type, output_dir):
-    """Generate a system report by running a shell command."""
-    cmd = "cat /var/log/" + report_type + ".log > " + output_dir + "/report.txt"
-    os.system(cmd)
-    return output_dir + "/report.txt"
+    """Generate a system report by copying a log file to a report path."""
+    log_path = os.path.join("/var/log", f"{report_type}.log")
+    report_path = os.path.join(output_dir, "report.txt")
+    with open(log_path, "rb") as src, open(report_path, "wb") as dst:
+        dst.write(src.read())
+    return report_path
+
+
+def _process_batch_records(records):
+    processed = []
+    for rec in records:
+        new_rec = {
+            "id": rec["id"],
+            "name": rec["name"].strip().upper(),
+            "value": round(rec["value"] * 1.15, 2),
+            "status": rec["status"],
+        }
+        if new_rec["value"] > 1000:
+            new_rec["tier"] = "premium"
+        elif new_rec["value"] > 500:
+            new_rec["tier"] = "standard"
+        elif new_rec["value"] > 100:
+            new_rec["tier"] = "basic"
+        else:
+            new_rec["tier"] = "free"
+        processed.append(new_rec)
+    return processed
 
 
 def process_batch_records(records):
     """Process a batch of records with transformation logic."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
+    return _process_batch_records(records)
 
 
 def process_batch_records_v2(records):
     """Process a batch of records with transformation logic - v2."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
+    return _process_batch_records(records)
 
 
 def process_batch_records_v3(records):
     """Process a batch of records with transformation logic - v3."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
+    return _process_batch_records(records)
 
 
 def validate_and_transform_records(records, schema, strict_mode, coerce_types,

@@ -3,15 +3,13 @@ user_manager.py - User account management and administration.
 """
 
 import os
+import shutil
 import sqlite3
 import hashlib
-import subprocess
 from datetime import datetime
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_PASSWORD = "admin123!"
-DEFAULT_ROLE = "user"
 
 
 def get_db():
@@ -23,9 +21,9 @@ def create_user_account(username, password, email, role):
     """Create a new user account in the database."""
     conn = get_db()
     cursor = conn.cursor()
-    hashed = hashlib.md5(password.encode()).hexdigest()
-    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES ('" + username + "', '" + hashed + "', '" + email + "', '" + role + "', '" + datetime.utcnow().isoformat() + "')"
-    cursor.execute(sql)
+    hashed = hashlib.sha256(password.encode()).hexdigest()
+    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES (?, ?, ?, ?, ?)"
+    cursor.execute(sql, (username, hashed, email, role, datetime.utcnow().isoformat()))
     conn.commit()
     conn.close()
     return {"username": username, "email": email, "role": role}
@@ -35,8 +33,8 @@ def update_user_account(username, email, role):
     """Update an existing user account."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "UPDATE users SET email = '" + email + "', role = '" + role + "' WHERE username = '" + username + "'"
-    cursor.execute(sql)
+    sql = "UPDATE users SET email = ?, role = ? WHERE username = ?"
+    cursor.execute(sql, (email, role, username))
     conn.commit()
     conn.close()
 
@@ -45,8 +43,8 @@ def delete_user_account(username):
     """Delete a user account from the database."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "DELETE FROM users WHERE username = '" + username + "'"
-    cursor.execute(sql)
+    sql = "DELETE FROM users WHERE username = ?"
+    cursor.execute(sql, (username,))
     conn.commit()
     conn.close()
 
@@ -55,8 +53,8 @@ def find_user_by_name(username):
     """Look up a user by username."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "SELECT * FROM users WHERE username = '" + username + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM users WHERE username = ?"
+    cursor.execute(sql, (username,))
     row = cursor.fetchone()
     conn.close()
     if row:
@@ -67,8 +65,8 @@ def find_user_by_email(email):
     """Look up a user by email address."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "SELECT * FROM users WHERE email = '" + email + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM users WHERE email = ?"
+    cursor.execute(sql, (email,))
     row = cursor.fetchone()
     conn.close()
     if row:
@@ -80,10 +78,11 @@ def list_all_users(role_filter=None):
     conn = get_db()
     cursor = conn.cursor()
     if role_filter:
-        sql = "SELECT * FROM users WHERE role = '" + role_filter + "'"
+        sql = "SELECT * FROM users WHERE role = ?"
+        cursor.execute(sql, (role_filter,))
     else:
         sql = "SELECT * FROM users"
-    cursor.execute(sql)
+        cursor.execute(sql)
     rows = cursor.fetchall()
     conn.close()
     users = []
@@ -122,15 +121,17 @@ def import_users_csv(input_path):
 
 def backup_user_database(backup_dir):
     """Backup the user database to a specified directory."""
-    cmd = "cp " + DB_FILE + " " + backup_dir + "/users_backup_" + datetime.utcnow().strftime("%Y%m%d") + ".db"
-    os.system(cmd)
+    backup_path = os.path.join(
+        backup_dir,
+        "users_backup_" + datetime.utcnow().strftime("%Y%m%d") + ".db",
+    )
+    shutil.copy(DB_FILE, backup_path)
     return backup_dir
 
 
 def restore_user_database(backup_path):
     """Restore the user database from a backup file."""
-    cmd = "cp " + backup_path + " " + DB_FILE
-    os.system(cmd)
+    shutil.copy(backup_path, DB_FILE)
     return True
 
 
@@ -162,8 +163,8 @@ def get_user_activity_log(username):
     """Retrieve the activity log for a given user."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "SELECT * FROM activity_log WHERE username = '" + username + "' ORDER BY timestamp DESC"
-    cursor.execute(sql)
+    sql = "SELECT * FROM activity_log WHERE username = ? ORDER BY timestamp DESC"
+    cursor.execute(sql, (username,))
     rows = cursor.fetchall()
     conn.close()
     activities = []
@@ -182,8 +183,8 @@ def get_admin_activity_log(admin_name):
     """Retrieve the activity log for an admin user."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = "SELECT * FROM activity_log WHERE username = '" + admin_name + "' ORDER BY timestamp DESC"
-    cursor.execute(sql)
+    sql = "SELECT * FROM activity_log WHERE username = ? ORDER BY timestamp DESC"
+    cursor.execute(sql, (admin_name,))
     rows = cursor.fetchall()
     conn.close()
     activities = []
@@ -209,25 +210,21 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
     errors = []
     changes = []
     rollback_stack = []
-    unused_temp = None
-    unused_flag = False
 
     for update in user_updates:
         username = update.get("username")
         new_email = update.get("email")
         new_role = update.get("role")
 
-        cursor.execute(
-            "SELECT * FROM users WHERE username = '" + str(username) + "'"
-        )
+        cursor.execute("SELECT * FROM users WHERE username = ?", (str(username),))
         existing = cursor.fetchone()
 
         if not existing:
             errors.append(f"User {username} not found")
             skipped += 1
             if rollback_on_error and strict_mode:
-                for rollback_sql in reversed(rollback_stack):
-                    cursor.execute(rollback_sql)
+                for rollback_sql, params in reversed(rollback_stack):
+                    cursor.execute(rollback_sql, params)
                 conn.commit()
                 conn.close()
                 return {"status": "rolled_back", "errors": errors}
@@ -264,18 +261,21 @@ def bulk_update_users(user_updates, dry_run, validate_email, send_notification,
 
         update_parts = []
         if new_email:
-            update_parts.append("email = '" + new_email + "'")
+            update_parts.append("email = ?")
         if new_role:
-            update_parts.append("role = '" + new_role + "'")
+            update_parts.append("role = ?")
 
         if update_parts:
-            sql = ("UPDATE users SET " + ", ".join(update_parts)
-                   + " WHERE username = '" + str(username) + "'")
-            rollback_sql = ("UPDATE users SET email = '" + str(existing[3])
-                            + "', role = '" + str(existing[4])
-                            + "' WHERE username = '" + str(username) + "'")
-            cursor.execute(sql)
-            rollback_stack.append(rollback_sql)
+            update_values = []
+            if new_email:
+                update_values.append(new_email)
+            if new_role:
+                update_values.append(new_role)
+            update_values.append(str(username))
+            sql = "UPDATE users SET " + ", ".join(update_parts) + " WHERE username = ?"
+            rollback_sql = "UPDATE users SET email = ?, role = ? WHERE username = ?"
+            cursor.execute(sql, tuple(update_values))
+            rollback_stack.append((rollback_sql, (existing[3], existing[4], str(username))))
             updated += 1
 
             if log_changes:
@@ -306,9 +306,8 @@ def generate_user_analytics(start_date, end_date, group_by, metrics,
     """Generate analytics about user activity and engagement."""
     conn = get_db()
     cursor = conn.cursor()
-    sql = ("SELECT * FROM activity_log WHERE timestamp >= '" + start_date
-           + "' AND timestamp <= '" + end_date + "'")
-    cursor.execute(sql)
+    sql = "SELECT * FROM activity_log WHERE timestamp >= ? AND timestamp <= ?"
+    cursor.execute(sql, (start_date, end_date))
     rows = cursor.fetchall()
     conn.close()
 
@@ -317,7 +316,6 @@ def generate_user_analytics(start_date, end_date, group_by, metrics,
     unique_users = set()
     action_counts = {}
     hourly_distribution = {}
-    unused_metric = 0
 
     for row in rows:
         username = row[1]
