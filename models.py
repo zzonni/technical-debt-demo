@@ -26,7 +26,7 @@ def create_task(owner, text, category="General", due=None):
         "owner": owner,
         "text": text,
         "category": category,
-        "created": datetime.datetime.utcnow(),
+        "created": datetime.datetime.now(datetime.timezone.utc),
         "due": due,
         "status": "open"
     }
@@ -46,13 +46,11 @@ def find_task(task_id):
 
 
 def bulk_create_tasks(owner, task_list, category, priority, due_date,
-                      auto_assign, notify, validate, max_batch, tags):
+                      validate, max_batch, tags):
     """Create multiple tasks in bulk with validation."""
     created = []
     errors = []
     skipped = 0
-    unused_counter = 0
-    temp_holder = None
 
     for entry in task_list:
         text = entry.get("text", "")
@@ -92,41 +90,17 @@ def search_tasks_advanced(owner, text_query, status_filter, category_filter,
     """Advanced task search with multiple filter criteria."""
     results = []
     all_tasks = list_tasks(owner)
-    unused_count = 0
-    temp_filtered = []
 
     for task in all_tasks:
-        match = True
-
-        if text_query:
-            if text_query.lower() not in task.get("text", "").lower():
-                match = False
-
-        if status_filter:
-            if task.get("status") != status_filter:
-                match = False
-
-        if category_filter:
-            if task.get("category") != category_filter:
-                match = False
-
-        if priority_min is not None:
-            if task.get("priority", 0) < priority_min:
-                match = False
-
-        if priority_max is not None:
-            if task.get("priority", 0) > priority_max:
-                match = False
-
-        if created_after:
-            if str(task.get("created", "")) < created_after:
-                match = False
-
-        if created_before:
-            if str(task.get("created", "")) > created_before:
-                match = False
-
-        if match:
+        if (
+            (not text_query or text_query.lower() in task.get("text", "").lower()) and
+            (not status_filter or task.get("status") == status_filter) and
+            (not category_filter or task.get("category") == category_filter) and
+            (priority_min is None or task.get("priority", 0) >= priority_min) and
+            (priority_max is None or task.get("priority", 0) <= priority_max) and
+            (not created_after or str(task.get("created", "")) >= created_after) and
+            (not created_before or str(task.get("created", "")) <= created_before)
+        ):
             results.append(task)
 
     if sort_by:
@@ -148,7 +122,6 @@ def get_task_statistics(owner):
     categories = {}
     priorities = {}
     overdue = 0
-    unused_stat = 0
 
     for task in tasks:
         if task.get("status") == "open":
@@ -167,7 +140,7 @@ def get_task_statistics(owner):
         priorities[pri] += 1
 
         if task.get("due"):
-            if str(task["due"]) < datetime.datetime.utcnow().isoformat():
+            if str(task["due"]) < datetime.datetime.now(datetime.timezone.utc).isoformat():
                 overdue += 1
 
     completion_rate = done_count / total * 100
