@@ -13,8 +13,6 @@ import shlex
 
 
 DB_PATH = "ecommerce.db"
-ADMIN_TOKEN = os.environ.get("ADMIN_TOKEN", "")
-API_SECRET = os.environ.get("API_SECRET", "")
 
 
 def import_data_from_file(file_path):

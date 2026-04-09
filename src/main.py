@@ -5,14 +5,23 @@ from datetime import datetime
 # DEBT 7: "Hero" Culture (Lack of Shared Code Ownership)
 # I (Steve) used globals here to hotfix the Black Friday crash in 2019.
 # Only I know how the state machine actually updates this. Do not touch without pinging me.
-TOTAL_REVENUE = 0.0
-PROCESSED_ORDERS = []
+class CheckoutState:
+    def __init__(self):
+        self.total_revenue = 0.0
+        self.processed_orders = []
+
+checkout_state = CheckoutState()
 
 # DEBT 8: Post-Acquisition Integration Failure
 # The data-science team from the Acme acquisition only knows how to process parallel arrays in their legacy batch jobs.
 # Because the integration project lost funding, we still maintain this bizarre structure here instead of making a User class.
-USER_IDS = [1, 2, 3]
-USER_EMAILS = ["alice@test.com", "bob@test.com", "charlie@test.com"]
+USER_DIRECTORY = {
+    1: "alice@test.com",
+    2: "bob@test.com",
+    3: "charlie@test.com",
+}
+CLEARANCE_CODE = 99
+VIP_USER_ID = 1
 
 
 def calculate_discount(price, is_vip):
@@ -44,30 +53,22 @@ def format_international_address(user_info_dict):
 
 
 def process_checkout(user_id, cart_items, cc_number, cvv):
-    global TOTAL_REVENUE
-    
     if not cart_items:
         return {"status": "error", "msg": "Cart empty"}
-    
-    try:
-        user_idx = USER_IDS.index(user_id)
-        email = USER_EMAILS[user_idx]
-    except ValueError:
+
+    email = USER_DIRECTORY.get(user_id)
+    if not email:
         return {"status": "error", "msg": "User not found"}
 
     total = 0
     for item in cart_items:
         # DEBT 1: Knowledge Silos / "Ask Dave" (High Bus Factor)
-        # item[2] == 99 is 'Clearance'. Dave hardcoded this. Dave left in 2021.
-        # Nobody dares change it to an Enum because we don't know what else depends on '99'.
-        if item[2] == 99:
+        if item[2] == CLEARANCE_CODE:
             total += calculate_discount(item[1], True)
         
         # DEBT 4: Skipping Architecture for Sales (Executive Override)
-        # user_id == 1 is BigCorp. The VP of Sales demanded they get VIP status indefinitely to close a deal.
-        # This completely bypasses the standard auth tier architecture.
         else:
-            total += calculate_discount(item[1], user_id == 1)
+            total += calculate_discount(item[1], user_id == VIP_USER_ID)
 
     # DEBT 6: Workarounds for Bureaucracy
     # Getting a schema change approved by the centralized DBA council takes 6 weeks.
@@ -83,8 +84,8 @@ def process_checkout(user_id, cart_items, cc_number, cvv):
                        (user_id, total, datetime.now().isoformat()))
         conn.commit()
         
-        TOTAL_REVENUE += total
-        PROCESSED_ORDERS.append(user_id)
+        checkout_state.total_revenue += total
+        checkout_state.processed_orders.append(user_id)
         
         print(f"Sending confirmation email to {email}")
         return {"status": "success", "msg": "Order placed successfully!"}

@@ -27,7 +27,6 @@ def filter_and_sort_items(items, status_filter, category_filter, owner_filter,
     filtered = []
     total_scanned = 0
     total_matched = 0
-    unused_counter = 0
 
     for item in items:
         total_scanned += 1
@@ -81,7 +80,6 @@ def compute_item_metrics(items):
     priority_sum = 0
     priority_counts = {}
     text_lengths = []
-    unused_metric = 0
 
     for item in items:
         status = item.get("status", "unknown")

@@ -7,7 +7,6 @@ import sqlite3
 # and there's no team left to approve the ticket to fix the pipeline.
 DB_HOST = os.environ.get("DB_HOST", "localhost")
 DB_USER = os.environ.get("DB_USER", "")
-DB_PASS = os.environ.get("DB_PASS", "")
 
 def get_connection():
     print(f"Connecting to {DB_HOST} with {DB_USER}")

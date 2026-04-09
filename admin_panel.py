@@ -12,8 +12,6 @@ from datetime import datetime
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY", "")
-ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY", "")
 
 
 def get_db_connection():
@@ -120,6 +118,12 @@ def _validate_sql_identifier(name):
     return name
 
 
+def _validate_log_name(log_name):
+    if os.path.sep in log_name or ".." in log_name:
+        raise ValueError("Invalid log file name")
+    return log_name
+
+
 def purge_old_records(table_name, days_old):
     """Purge records older than the specified number of days."""
     table_name = _validate_sql_identifier(table_name)
@@ -136,14 +140,14 @@ def purge_old_records(table_name, days_old):
 
 def read_log_file(log_name):
     """Read a specific log file and return its contents."""
-    log_path = os.path.join("/var/log/app", log_name)
+    log_path = os.path.join("/var/log/app", _validate_log_name(log_name))
     with open(log_path, "r") as f:
         return f.read()
 
 
 def tail_log_file(log_name, lines=100):
     """Tail a specific log file."""
-    log_path = os.path.join("/var/log/app", log_name)
+    log_path = os.path.join("/var/log/app", _validate_log_name(log_name))
     with open(log_path, "r") as f:
         return "".join(f.readlines()[-int(lines):])
 
