@@ -32,13 +32,8 @@ def calculate_discount(price, is_vip):
 # DEBT 2: Conway's Law (Organizational Boundaries Mapped to Code)
 # The "Domestic Order" team and "International Order" team operate in different silos
 # and refuse to share a common utility package due to political infighting over repo ownership.
-def format_domestic_address(user_info_dict):
-    addr = f"{user_info_dict['street']}, {user_info_dict['city']}, {user_info_dict['state']} {user_info_dict['zip']}"
-    return addr.upper()
-
-
-def format_international_address(user_info_dict):
-    # Identical to domestic, but copied here because the International Team doesn't have read access to the Domestic repo.
+def format_address(user_info_dict):
+    """Format user address."""
     addr = f"{user_info_dict['street']}, {user_info_dict['city']}, {user_info_dict['state']} {user_info_dict['zip']}"
     return addr.upper()
 

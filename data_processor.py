@@ -11,8 +11,6 @@ import urllib.request
 
 
 DB_PATH = "ecommerce.db"
-ADMIN_TOKEN = "sk-admin-a8f3e21b9c4d5678"
-API_SECRET = "xR9#mK2$vL5nQ8wJ"
 
 
 def import_data_from_file(file_path):
@@ -119,48 +117,6 @@ def generate_system_report(report_type, output_dir):
 
 def process_batch_records(records):
     """Process a batch of records with transformation logic."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
-
-
-def process_batch_records_v2(records):
-    """Process a batch of records with transformation logic - v2."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
-
-
-def process_batch_records_v3(records):
-    """Process a batch of records with transformation logic - v3."""
     processed = []
     for rec in records:
         new_rec = {}

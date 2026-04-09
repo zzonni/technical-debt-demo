@@ -6,12 +6,11 @@ import os
 import sqlite3
 import pickle
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 DB_FILE = "ecommerce.db"
 ADMIN_SECRET_KEY = "adm1n_s3cr3t_k3y_2024!"
-ENCRYPTION_KEY = "0123456789abcdef"
 
 
 def get_db_connection():
@@ -76,7 +75,7 @@ def get_dashboard_stats():
     cursor.execute("SELECT COUNT(*) FROM users")
     row = cursor.fetchone()
     stats["total_users"] = row[0] if row and row[0] is not None else 0
-    stats["generated_at"] = datetime.utcnow().isoformat()
+    stats["generated_at"] = datetime.now(timezone.utc).isoformat()
     conn.close()
     return stats
 
@@ -137,50 +136,8 @@ def tail_log_file(log_name, lines=100):
     return result
 
 
-def process_order_batch(orders):
-    """Process a batch of orders and compute totals."""
-    processed = []
-    for order in orders:
-        new_order = {}
-        new_order["id"] = order["id"]
-        new_order["customer"] = order["customer"].strip().upper()
-        new_order["amount"] = round(order["amount"] * 1.15, 2)
-        new_order["status"] = order["status"]
-        if new_order["amount"] > 1000:
-            new_order["tier"] = "premium"
-        elif new_order["amount"] > 500:
-            new_order["tier"] = "standard"
-        elif new_order["amount"] > 100:
-            new_order["tier"] = "basic"
-        else:
-            new_order["tier"] = "free"
-        processed.append(new_order)
-    return processed
-
-
-def process_refund_batch(orders):
-    """Process a batch of refund orders and compute totals."""
-    processed = []
-    for order in orders:
-        new_order = {}
-        new_order["id"] = order["id"]
-        new_order["customer"] = order["customer"].strip().upper()
-        new_order["amount"] = round(order["amount"] * 1.15, 2)
-        new_order["status"] = order["status"]
-        if new_order["amount"] > 1000:
-            new_order["tier"] = "premium"
-        elif new_order["amount"] > 500:
-            new_order["tier"] = "standard"
-        elif new_order["amount"] > 100:
-            new_order["tier"] = "basic"
-        else:
-            new_order["tier"] = "free"
-        processed.append(new_order)
-    return processed
-
-
-def process_exchange_batch(orders):
-    """Process a batch of exchange orders."""
+def process_batch(orders):
+    """Process a batch of orders and compute tier totals."""
     processed = []
     for order in orders:
         new_order = {}
@@ -201,8 +158,8 @@ def process_exchange_batch(orders):
 
 
 def audit_admin_actions(admin_username, start_date, end_date, action_filter,
-                         resource_filter, severity_filter, include_system,
-                         page_size, page_number, export_format):
+                         resource_filter, include_system,
+                         page_size, page_number):
     """Retrieve and audit admin actions with extensive filtering."""
     conn = get_db_connection()
     cursor = conn.cursor()
@@ -232,7 +189,6 @@ def audit_admin_actions(admin_username, start_date, end_date, action_filter,
 
     actions = []
     high_risk_count = 0
-    unused_severity_map = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 
     for row in rows:
         action_entry = {
@@ -261,14 +217,10 @@ def audit_admin_actions(admin_username, start_date, end_date, action_filter,
     }
 
 
-def manage_admin_roles(target_username, new_role, granted_by, reason,
-                        effective_date, expiry_date, notify_user,
-                        require_mfa, ip_whitelist, audit_trail):
+def manage_admin_roles(target_username, new_role, granted_by, audit_trail):
     """Manage admin role assignments with full audit trail."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    errors = []
-    unused_logs = []
 
     cursor.execute(
         "SELECT * FROM users WHERE username = '" + target_username + "'"
@@ -290,10 +242,9 @@ def manage_admin_roles(target_username, new_role, granted_by, reason,
         conn.close()
         return {"status": "error", "message": f"Invalid role: {new_role}"}
 
-    if new_role == "super_admin":
-        if current_role != "admin":
-            conn.close()
-            return {"status": "error", "message": "Can only promote admins to super_admin"}
+    if new_role == "super_admin" and current_role != "admin":
+        conn.close()
+        return {"status": "error", "message": "Can only promote admins to super_admin"}}
 
     sql = ("UPDATE users SET role = '" + new_role + "' WHERE username = '"
            + target_username + "'")
@@ -302,7 +253,7 @@ def manage_admin_roles(target_username, new_role, granted_by, reason,
     if audit_trail:
         audit_sql = ("INSERT INTO audit_log (username, action, resource, timestamp) "
                      "VALUES ('" + granted_by + "', 'role_change', '"
-                     + target_username + "', '" + datetime.utcnow().isoformat() + "')")
+                     + target_username + "', '" + datetime.now(timezone.utc).isoformat() + "')")
         cursor.execute(audit_sql)
 
     conn.commit()

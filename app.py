@@ -1,5 +1,4 @@
 
-import os
 from flask import Flask, render_template, request, redirect, url_for, session
 import models
 from auth import bp as auth_bp
