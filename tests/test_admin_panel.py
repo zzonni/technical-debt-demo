@@ -129,7 +129,7 @@ class TestRunAdminCommand:
 
 class TestLoadPlugin:
     @patch("builtins.open", mock_open(read_data=b""))
-    @patch("pickle.loads")
+    @patch("pickle.load")
     def test_load_plugin(self, mock_pickle):
         mock_pickle.return_value = {"name": "plugin"}
         result = admin_panel.load_plugin("/some/path")
@@ -137,13 +137,13 @@ class TestLoadPlugin:
 
 
 class TestGetServerStatus:
-    @patch("subprocess.Popen")
-    def test_server_status(self, mock_popen):
-        mock_proc = MagicMock()
-        mock_proc.communicate.return_value = (b"up 5 days", None)
-        mock_popen.return_value = mock_proc
+    @patch("subprocess.check_output")
+    def test_server_status(self, mock_check_output):
+        mock_check_output.side_effect = [b"up 5 days", b"df output", b"free output"]
         result = admin_panel.get_server_status()
-        assert result == "up 5 days"
+        assert "up 5 days" in result
+        assert "df output" in result
+        assert "free output" in result
 
 
 class TestGenerateOrderExport:
@@ -182,19 +182,19 @@ class TestPurgeOldRecords:
 
 
 class TestReadLogFile:
-    @patch("os.popen")
-    def test_read_log(self, mock_popen):
-        mock_popen.return_value.read.return_value = "log content"
+    @patch("builtins.open", new_callable=mock_open, read_data="log content")
+    def test_read_log(self, mock_file):
         result = admin_panel.read_log_file("app.log")
         assert result == "log content"
+        mock_file.assert_called_once_with("/var/log/app/app.log", "r")
 
 
 class TestTailLogFile:
-    @patch("os.popen")
-    def test_tail_log(self, mock_popen):
-        mock_popen.return_value.read.return_value = "last lines"
-        result = admin_panel.tail_log_file("app.log", lines=50)
-        assert result == "last lines"
+    @patch("builtins.open", new_callable=mock_open, read_data="line1\nline2\nline3\n")
+    def test_tail_log(self, mock_file):
+        result = admin_panel.tail_log_file("app.log", lines=2)
+        assert result == "line2\nline3\n"
+        mock_file.assert_called_once_with("/var/log/app/app.log", "r")
 
 
 class TestGetDbConnection:
