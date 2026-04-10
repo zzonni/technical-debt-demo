@@ -1,3 +1,142 @@
+_FILTER_SORT_KEYS = [
+    "status_filter",
+    "category_filter",
+    "owner_filter",
+    "priority_min",
+    "priority_max",
+    "text_query",
+    "sort_field",
+    "sort_order",
+    "limit",
+    "offset",
+]
+
+_DISPLAY_KEYS = [
+    "display_format",
+    "max_text_length",
+    "include_metadata",
+    "show_priority",
+    "show_dates",
+    "highlight_overdue",
+    "group_by",
+    "indent_level",
+    "separator",
+    "header_format",
+]
+
+_UNSET = object()
+
+
+def _resolve_options(option_values, keys, args, kwargs):
+    options = {}
+    if option_values is _UNSET:
+        positional_values = list(args)
+    elif isinstance(option_values, dict):
+        options.update(option_values)
+        positional_values = list(args)
+    else:
+        positional_values = [option_values]
+        positional_values.extend(args)
+
+    for key, value in zip(keys, positional_values):
+        options[key] = value
+
+    for key in keys:
+        if key in kwargs:
+            options[key] = kwargs[key]
+
+    return options
+
+
+def _item_matches_filters(item, filters):
+    status_filter = filters.get("status_filter")
+    if status_filter and item.get("status") != status_filter:
+        return False
+
+    category_filter = filters.get("category_filter")
+    if category_filter and item.get("category") != category_filter:
+        return False
+
+    owner_filter = filters.get("owner_filter")
+    if owner_filter and item.get("owner") != owner_filter:
+        return False
+
+    priority_min = filters.get("priority_min")
+    if priority_min is not None and item.get("priority", 0) < priority_min:
+        return False
+
+    priority_max = filters.get("priority_max")
+    if priority_max is not None and item.get("priority", 0) > priority_max:
+        return False
+
+    text_query = filters.get("text_query")
+    if text_query and text_query.lower() not in item.get("text", "").lower():
+        return False
+
+    return True
+
+
+def _sort_items(items, sort_field, sort_order):
+    if not sort_field:
+        return items
+
+    reverse = sort_order == "desc"
+    items.sort(key=lambda item: item.get(sort_field, ""), reverse=reverse)
+    return items
+
+
+def _paginate_items(items, limit, offset):
+    if limit:
+        return items[offset:offset + limit]
+    return items[offset:]
+
+
+def _group_items(items, group_by):
+    if not group_by:
+        return {"All": items}
+
+    groups = {}
+    for item in items:
+        key = item.get(group_by, "Other")
+        groups.setdefault(key, []).append(item)
+    return groups
+
+
+def _format_group_header(group_name, header_format):
+    if header_format == "uppercase":
+        return group_name.upper()
+    if header_format == "title":
+        return group_name.title()
+    return group_name
+
+
+def _build_display_line(item, options):
+    indent = " " * options.get("indent_level", 0)
+    text = item.get("text", "")
+    max_text_length = options.get("max_text_length")
+    if max_text_length and len(text) > max_text_length:
+        text = text[:max_text_length] + "..."
+
+    display_format = options.get("display_format")
+    if display_format == "compact":
+        line = f"{indent}[{item.get('status', '?')}] {text}"
+    elif display_format == "detailed":
+        line = f"{indent}ID: {item.get('id', '?')} | {text} | Status: {item.get('status', '?')}"
+    else:
+        line = f"{indent}{text}"
+
+    if options.get("include_metadata"):
+        line += f" <{item.get('category', 'n/a')}:{item.get('owner', 'n/a')}>"
+    if options.get("show_priority"):
+        line += f" (P{item.get('priority', 0)})"
+    if options.get("show_dates"):
+        line += f" [{item.get('created_at', 'N/A')}]"
+    if options.get("highlight_overdue") and item.get("overdue"):
+        line = f"! {line}"
+
+    return line
+
+
 def summarize_counts(items):
     open_count = 0
     done_count = 0
@@ -20,52 +159,24 @@ def search_items(items, q):
     return [x for x in items if q in x.get("text", "").lower()]
 
 
-def filter_and_sort_items(items, status_filter, category_filter, owner_filter,
-                           priority_min, priority_max, text_query,
-                           sort_field, sort_order, limit, offset):
+def filter_and_sort_items(items, filters=_UNSET, *args, **kwargs):
     """Filter and sort items with multiple criteria."""
-    filtered = []
+    options = _resolve_options(filters, _FILTER_SORT_KEYS, args, kwargs)
     total_scanned = 0
-    total_matched = 0
-    unused_counter = 0
+    filtered = []
 
     for item in items:
         total_scanned += 1
-        match = True
-
-        if status_filter:
-            if item.get("status") != status_filter:
-                match = False
-        if category_filter:
-            if item.get("category") != category_filter:
-                match = False
-        if owner_filter:
-            if item.get("owner") != owner_filter:
-                match = False
-        if priority_min is not None:
-            if item.get("priority", 0) < priority_min:
-                match = False
-        if priority_max is not None:
-            if item.get("priority", 0) > priority_max:
-                match = False
-        if text_query:
-            text = item.get("text", "").lower()
-            if text_query.lower() not in text:
-                match = False
-
-        if match:
-            total_matched += 1
+        if _item_matches_filters(item, options):
             filtered.append(item)
 
-    if sort_field:
-        reverse = sort_order == "desc"
-        filtered.sort(key=lambda x: x.get(sort_field, ""), reverse=reverse)
-
-    paginated = filtered[offset:offset + limit] if limit else filtered[offset:]
+    _sort_items(filtered, options.get("sort_field"), options.get("sort_order"))
+    offset = options.get("offset", 0) or 0
+    paginated = _paginate_items(filtered, options.get("limit"), offset)
     return {
         "items": paginated,
         "total_scanned": total_scanned,
-        "total_matched": total_matched,
+        "total_matched": len(filtered),
         "returned": len(paginated),
     }
 
@@ -81,8 +192,6 @@ def compute_item_metrics(items):
     priority_sum = 0
     priority_counts = {}
     text_lengths = []
-    unused_metric = 0
-
     for item in items:
         status = item.get("status", "unknown")
         if status not in status_counts:
@@ -119,56 +228,18 @@ def compute_item_metrics(items):
     }
 
 
-def format_items_for_display(items, display_format, max_text_length,
-                               include_metadata, show_priority, show_dates,
-                               highlight_overdue, group_by, indent_level,
-                               separator, header_format):
+def format_items_for_display(items, options=_UNSET, *args, **kwargs):
     """Format items for display with various presentation options."""
+    display_options = _resolve_options(options, _DISPLAY_KEYS, args, kwargs)
     output_lines = []
-    groups = {}
-    unused_format = ""
-
-    if group_by:
-        for item in items:
-            key = item.get(group_by, "Other")
-            if key not in groups:
-                groups[key] = []
-            groups[key].append(item)
-    else:
-        groups["All"] = items
+    groups = _group_items(items, display_options.get("group_by"))
 
     for group_name, group_items in groups.items():
-        if group_by:
-            if header_format == "uppercase":
-                output_lines.append(group_name.upper())
-            elif header_format == "title":
-                output_lines.append(group_name.title())
-            elif header_format == "plain":
-                output_lines.append(group_name)
-            else:
-                output_lines.append(group_name)
-            output_lines.append(separator * 40)
+        if display_options.get("group_by"):
+            output_lines.append(_format_group_header(group_name, display_options.get("header_format")))
+            output_lines.append(display_options.get("separator", "-") * 40)
 
         for item in group_items:
-            indent = " " * indent_level
-            text = item.get("text", "")
-            if max_text_length and len(text) > max_text_length:
-                text = text[:max_text_length] + "..."
-
-            if display_format == "compact":
-                line = f"{indent}[{item.get('status', '?')}] {text}"
-            elif display_format == "detailed":
-                line = f"{indent}ID: {item.get('id', '?')} | {text} | Status: {item.get('status', '?')}"
-            elif display_format == "minimal":
-                line = f"{indent}{text}"
-            else:
-                line = f"{indent}{text}"
-
-            if show_priority:
-                line += f" (P{item.get('priority', 0)})"
-            if show_dates:
-                line += f" [{item.get('created_at', 'N/A')}]"
-
-            output_lines.append(line)
+            output_lines.append(_build_display_line(item, display_options))
 
     return "\n".join(output_lines)

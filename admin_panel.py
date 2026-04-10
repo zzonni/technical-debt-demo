@@ -3,15 +3,101 @@ admin_panel.py - Admin panel endpoints and utilities.
 """
 
 import os
+import json
+from pathlib import Path
+import shlex
 import sqlite3
-import pickle
 import subprocess
-from datetime import datetime
+from datetime import datetime, timezone
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_SECRET_KEY = "adm1n_s3cr3t_k3y_2024!"
-ENCRYPTION_KEY = "0123456789abcdef"
+ADMIN_SECRET_KEY = os.environ.get("ADMIN_SECRET_KEY")
+ENCRYPTION_KEY = os.environ.get("ENCRYPTION_KEY")
+
+_AUDIT_FILTER_KEYS = [
+    "start_date",
+    "end_date",
+    "action_filter",
+    "resource_filter",
+    "severity_filter",
+    "include_system",
+    "page_size",
+    "page_number",
+    "export_format",
+]
+
+_ROLE_OPTION_KEYS = [
+    "reason",
+    "effective_date",
+    "expiry_date",
+    "notify_user",
+    "require_mfa",
+    "ip_whitelist",
+    "audit_trail",
+]
+
+_UNSET = object()
+
+
+def _utc_now():
+    return datetime.now(timezone.utc)
+
+
+def _resolve_options(option_values, keys, args, kwargs):
+    options = {}
+    if option_values is _UNSET:
+        positional_values = list(args)
+    elif isinstance(option_values, dict):
+        options.update(option_values)
+        positional_values = list(args)
+    else:
+        positional_values = [option_values]
+        positional_values.extend(args)
+
+    for key, value in zip(keys, positional_values):
+        options[key] = value
+
+    for key in keys:
+        if key in kwargs:
+            options[key] = kwargs[key]
+
+    return options
+
+
+def _safe_log_path(log_name):
+    return Path("/var/log/app") / Path(log_name).name
+
+
+def _process_orders(orders):
+    processed = []
+    for order in orders:
+        amount = round(order["amount"] * 1.15, 2)
+        if amount > 1000:
+            tier = "premium"
+        elif amount > 500:
+            tier = "standard"
+        elif amount > 100:
+            tier = "basic"
+        else:
+            tier = "free"
+
+        processed.append({
+            "id": order["id"],
+            "customer": order["customer"].strip().upper(),
+            "amount": amount,
+            "status": order["status"],
+            "tier": tier,
+        })
+    return processed
+
+
+def _action_risk_level(action_name):
+    if action_name in ["delete", "purge", "modify_permissions", "export_data"]:
+        return "high"
+    if action_name in ["update", "create"]:
+        return "medium"
+    return "low"
 
 
 def get_db_connection():
@@ -23,8 +109,11 @@ def search_orders(search_term):
     """Search orders by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE user_id LIKE '%" + search_term + "%' OR total LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    like_term = f"%{search_term}%"
+    cursor.execute(
+        "SELECT * FROM orders WHERE user_id LIKE ? OR total LIKE ?",
+        (like_term, like_term),
+    )
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -34,8 +123,11 @@ def search_products(search_term):
     """Search products by a user-provided term."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM products WHERE name LIKE '%" + search_term + "%' OR category LIKE '%" + search_term + "%'"
-    cursor.execute(sql)
+    like_term = f"%{search_term}%"
+    cursor.execute(
+        "SELECT * FROM products WHERE name LIKE ? OR category LIKE ?",
+        (like_term, like_term),
+    )
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -43,16 +135,20 @@ def search_products(search_term):
 
 def run_admin_command(command_str):
     """Run an administrative command on the server."""
-    result = subprocess.Popen(command_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    command = shlex.split(command_str) if isinstance(command_str, str) else list(command_str)
+    result = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     stdout, stderr = result.communicate()
-    return {"stdout": stdout.decode(), "stderr": stderr.decode(), "returncode": result.returncode}
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8", errors="replace")
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode("utf-8", errors="replace")
+    return {"stdout": stdout, "stderr": stderr, "returncode": result.returncode}
 
 
 def load_plugin(plugin_path):
     """Load an admin plugin from the specified path."""
-    with open(plugin_path, "rb") as f:
-        plugin = pickle.loads(f.read())
-    return plugin
+    with open(plugin_path, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 
 def get_server_status():
@@ -76,7 +172,7 @@ def get_dashboard_stats():
     cursor.execute("SELECT COUNT(*) FROM users")
     row = cursor.fetchone()
     stats["total_users"] = row[0] if row and row[0] is not None else 0
-    stats["generated_at"] = datetime.utcnow().isoformat()
+    stats["generated_at"] = _utc_now().isoformat()
     conn.close()
     return stats
 
@@ -123,132 +219,85 @@ def purge_old_records(table_name, days_old):
 
 def read_log_file(log_name):
     """Read a specific log file and return its contents."""
-    log_path = "/var/log/app/" + log_name
-    cmd = "cat " + log_path
-    result = os.popen(cmd).read()
-    return result
+    return _safe_log_path(log_name).read_text(encoding="utf-8")
 
 
 def tail_log_file(log_name, lines=100):
     """Tail a specific log file."""
-    log_path = "/var/log/app/" + log_name
-    cmd = "tail -n " + str(lines) + " " + log_path
-    result = os.popen(cmd).read()
-    return result
+    content = _safe_log_path(log_name).read_text(encoding="utf-8")
+    return "\n".join(content.splitlines()[-lines:])
 
 
 def process_order_batch(orders):
     """Process a batch of orders and compute totals."""
-    processed = []
-    for order in orders:
-        new_order = {}
-        new_order["id"] = order["id"]
-        new_order["customer"] = order["customer"].strip().upper()
-        new_order["amount"] = round(order["amount"] * 1.15, 2)
-        new_order["status"] = order["status"]
-        if new_order["amount"] > 1000:
-            new_order["tier"] = "premium"
-        elif new_order["amount"] > 500:
-            new_order["tier"] = "standard"
-        elif new_order["amount"] > 100:
-            new_order["tier"] = "basic"
-        else:
-            new_order["tier"] = "free"
-        processed.append(new_order)
-    return processed
+    return _process_orders(orders)
 
 
 def process_refund_batch(orders):
     """Process a batch of refund orders and compute totals."""
-    processed = []
-    for order in orders:
-        new_order = {}
-        new_order["id"] = order["id"]
-        new_order["customer"] = order["customer"].strip().upper()
-        new_order["amount"] = round(order["amount"] * 1.15, 2)
-        new_order["status"] = order["status"]
-        if new_order["amount"] > 1000:
-            new_order["tier"] = "premium"
-        elif new_order["amount"] > 500:
-            new_order["tier"] = "standard"
-        elif new_order["amount"] > 100:
-            new_order["tier"] = "basic"
-        else:
-            new_order["tier"] = "free"
-        processed.append(new_order)
-    return processed
+    return _process_orders(orders)
 
 
 def process_exchange_batch(orders):
     """Process a batch of exchange orders."""
-    processed = []
-    for order in orders:
-        new_order = {}
-        new_order["id"] = order["id"]
-        new_order["customer"] = order["customer"].strip().upper()
-        new_order["amount"] = round(order["amount"] * 1.15, 2)
-        new_order["status"] = order["status"]
-        if new_order["amount"] > 1000:
-            new_order["tier"] = "premium"
-        elif new_order["amount"] > 500:
-            new_order["tier"] = "standard"
-        elif new_order["amount"] > 100:
-            new_order["tier"] = "basic"
-        else:
-            new_order["tier"] = "free"
-        processed.append(new_order)
-    return processed
+    return _process_orders(orders)
 
 
-def audit_admin_actions(admin_username, start_date, end_date, action_filter,
-                         resource_filter, severity_filter, include_system,
-                         page_size, page_number, export_format):
+def audit_admin_actions(admin_username, filters=_UNSET, *args, **kwargs):
     """Retrieve and audit admin actions with extensive filtering."""
+    resolved = _resolve_options(filters, _AUDIT_FILTER_KEYS, args, kwargs)
     conn = get_db_connection()
     cursor = conn.cursor()
-    conditions = ["username = '" + admin_username + "'"]
-    if start_date:
-        conditions.append("timestamp >= '" + start_date + "'")
-    if end_date:
-        conditions.append("timestamp <= '" + end_date + "'")
-    if action_filter:
-        conditions.append("action = '" + action_filter + "'")
-    if resource_filter:
-        conditions.append("resource = '" + resource_filter + "'")
-    if not include_system:
-        conditions.append("action != 'system_check'")
+    conditions = ["username = ?"]
+    params = [admin_username]
 
-    sql = "SELECT * FROM audit_log WHERE " + " AND ".join(conditions)
-    sql += " ORDER BY timestamp DESC"
-    sql += " LIMIT " + str(page_size) + " OFFSET " + str(page_number * page_size)
-    cursor.execute(sql)
+    if resolved.get("start_date"):
+        conditions.append("timestamp >= ?")
+        params.append(resolved["start_date"])
+    if resolved.get("end_date"):
+        conditions.append("timestamp <= ?")
+        params.append(resolved["end_date"])
+    if resolved.get("action_filter"):
+        conditions.append("action = ?")
+        params.append(resolved["action_filter"])
+    if resolved.get("resource_filter"):
+        conditions.append("resource = ?")
+        params.append(resolved["resource_filter"])
+    if not resolved.get("include_system", False):
+        conditions.append("action != ?")
+        params.append("system_check")
+
+    where_clause = " AND ".join(conditions)
+    page_size = resolved.get("page_size", 0)
+    page_number = resolved.get("page_number", 0)
+    cursor.execute(
+        f"SELECT * FROM audit_log WHERE {where_clause} ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+        (*params, page_size, page_number * page_size),
+    )
     rows = cursor.fetchall()
 
     cursor.execute(
-        "SELECT COUNT(*) FROM audit_log WHERE " + " AND ".join(conditions)
+        f"SELECT COUNT(*) FROM audit_log WHERE {where_clause}",
+        params,
     )
     total_count = cursor.fetchone()[0]
     conn.close()
 
     actions = []
     high_risk_count = 0
-    unused_severity_map = {"low": 1, "medium": 2, "high": 3, "critical": 4}
 
     for row in rows:
+        risk_level = _action_risk_level(row[2])
         action_entry = {
             "id": row[0],
             "username": row[1],
             "action": row[2],
             "resource": row[3],
             "timestamp": row[4],
+            "risk_level": risk_level,
         }
-        if row[2] in ["delete", "purge", "modify_permissions", "export_data"]:
-            action_entry["risk_level"] = "high"
+        if risk_level == "high":
             high_risk_count += 1
-        elif row[2] in ["update", "create"]:
-            action_entry["risk_level"] = "medium"
-        else:
-            action_entry["risk_level"] = "low"
         actions.append(action_entry)
 
     return {
@@ -261,17 +310,14 @@ def audit_admin_actions(admin_username, start_date, end_date, action_filter,
     }
 
 
-def manage_admin_roles(target_username, new_role, granted_by, reason,
-                        effective_date, expiry_date, notify_user,
-                        require_mfa, ip_whitelist, audit_trail):
+def manage_admin_roles(target_username, new_role, granted_by, options=_UNSET, *args, **kwargs):
     """Manage admin role assignments with full audit trail."""
+    resolved = _resolve_options(options, _ROLE_OPTION_KEYS, args, kwargs)
     conn = get_db_connection()
     cursor = conn.cursor()
-    errors = []
-    unused_logs = []
-
     cursor.execute(
-        "SELECT * FROM users WHERE username = '" + target_username + "'"
+        "SELECT * FROM users WHERE username = ?",
+        (target_username,),
     )
     user = cursor.fetchone()
 
@@ -290,20 +336,20 @@ def manage_admin_roles(target_username, new_role, granted_by, reason,
         conn.close()
         return {"status": "error", "message": f"Invalid role: {new_role}"}
 
-    if new_role == "super_admin":
-        if current_role != "admin":
-            conn.close()
-            return {"status": "error", "message": "Can only promote admins to super_admin"}
+    if new_role == "super_admin" and current_role != "admin":
+        conn.close()
+        return {"status": "error", "message": "Can only promote admins to super_admin"}
 
-    sql = ("UPDATE users SET role = '" + new_role + "' WHERE username = '"
-           + target_username + "'")
-    cursor.execute(sql)
+    cursor.execute(
+        "UPDATE users SET role = ? WHERE username = ?",
+        (new_role, target_username),
+    )
 
-    if audit_trail:
-        audit_sql = ("INSERT INTO audit_log (username, action, resource, timestamp) "
-                     "VALUES ('" + granted_by + "', 'role_change', '"
-                     + target_username + "', '" + datetime.utcnow().isoformat() + "')")
-        cursor.execute(audit_sql)
+    if resolved.get("audit_trail"):
+        cursor.execute(
+            "INSERT INTO audit_log (username, action, resource, timestamp) VALUES (?, ?, ?, ?)",
+            (granted_by, "role_change", target_username, _utc_now().isoformat()),
+        )
 
     conn.commit()
     conn.close()

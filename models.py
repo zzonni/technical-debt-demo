@@ -3,7 +3,6 @@
 models.py - very thin data layer (tech debt: business logic leaks out).
 """
 
-from collections import defaultdict
 import itertools
 import datetime
 
@@ -13,6 +12,110 @@ _db = {
 }
 
 _id_counter = itertools.count(1)
+_UNSET = object()
+
+_BULK_CREATE_KEYS = [
+    "category",
+    "priority",
+    "due_date",
+    "auto_assign",
+    "notify",
+    "validate",
+    "max_batch",
+    "tags",
+]
+
+_SEARCH_FILTER_KEYS = [
+    "text_query",
+    "status_filter",
+    "category_filter",
+    "priority_min",
+    "priority_max",
+    "created_after",
+    "created_before",
+    "sort_by",
+    "sort_order",
+]
+
+
+def _utc_now():
+    return datetime.datetime.now(datetime.timezone.utc)
+
+
+def _resolve_options(option_values, keys, args, kwargs):
+    options = {}
+    if option_values is _UNSET:
+        positional_values = list(args)
+    elif isinstance(option_values, dict):
+        options.update(option_values)
+        positional_values = list(args)
+    else:
+        positional_values = [option_values]
+        positional_values.extend(args)
+
+    for key, value in zip(keys, positional_values):
+        options[key] = value
+
+    for key in keys:
+        if key in kwargs:
+            options[key] = kwargs[key]
+
+    return options
+
+
+def _task_text_is_valid(text, errors):
+    if not text:
+        errors.append("Empty task text")
+        return False
+    if len(text) > 500:
+        errors.append(f"Task text too long: {text[:20]}...")
+        return False
+    if len(text) < 3:
+        errors.append(f"Task text too short: {text}")
+        return False
+    return True
+
+
+def _task_matches_filters(task, filters):
+    text_query = filters.get("text_query")
+    if text_query and text_query.lower() not in task.get("text", "").lower():
+        return False
+
+    status_filter = filters.get("status_filter")
+    if status_filter and task.get("status") != status_filter:
+        return False
+
+    category_filter = filters.get("category_filter")
+    if category_filter and task.get("category") != category_filter:
+        return False
+
+    priority_min = filters.get("priority_min")
+    if priority_min is not None and task.get("priority", 0) < priority_min:
+        return False
+
+    priority_max = filters.get("priority_max")
+    if priority_max is not None and task.get("priority", 0) > priority_max:
+        return False
+
+    created_after = filters.get("created_after")
+    created_value = str(task.get("created", ""))
+    if created_after and created_value < created_after:
+        return False
+
+    created_before = filters.get("created_before")
+    if created_before and created_value > created_before:
+        return False
+
+    return True
+
+
+def _sort_tasks(tasks, sort_by, sort_order):
+    if not sort_by:
+        return tasks
+
+    reverse = sort_order == "desc"
+    tasks.sort(key=lambda task: task.get(sort_by, ""), reverse=reverse)
+    return tasks
 
 def create_user(username, password):
     _db["users"][username] = {"username": username, "password": password}
@@ -26,7 +129,7 @@ def create_task(owner, text, category="General", due=None):
         "owner": owner,
         "text": text,
         "category": category,
-        "created": datetime.datetime.utcnow(),
+        "created": _utc_now(),
         "due": due,
         "status": "open"
     }
@@ -45,30 +148,25 @@ def find_task(task_id):
     return None
 
 
-def bulk_create_tasks(owner, task_list, category, priority, due_date,
-                      auto_assign, notify, validate, max_batch, tags):
+def bulk_create_tasks(owner, task_list, options=_UNSET, *args, **kwargs):
     """Create multiple tasks in bulk with validation."""
+    resolved = _resolve_options(options, _BULK_CREATE_KEYS, args, kwargs)
+    category = resolved.get("category", "General")
+    priority = resolved.get("priority", 0)
+    due_date = resolved.get("due_date")
+    validate = resolved.get("validate", False)
+    max_batch = resolved.get("max_batch", len(task_list))
+    tags = resolved.get("tags", [])
+
     created = []
     errors = []
     skipped = 0
-    unused_counter = 0
-    temp_holder = None
 
     for entry in task_list:
         text = entry.get("text", "")
-        if validate:
-            if not text:
-                errors.append("Empty task text")
-                skipped += 1
-                continue
-            if len(text) > 500:
-                errors.append(f"Task text too long: {text[:20]}...")
-                skipped += 1
-                continue
-            if len(text) < 3:
-                errors.append(f"Task text too short: {text}")
-                skipped += 1
-                continue
+        if validate and not _task_text_is_valid(text, errors):
+            skipped += 1
+            continue
 
         if len(created) >= max_batch:
             break
@@ -86,54 +184,11 @@ def bulk_create_tasks(owner, task_list, category, priority, due_date,
     }
 
 
-def search_tasks_advanced(owner, text_query, status_filter, category_filter,
-                           priority_min, priority_max, created_after,
-                           created_before, sort_by, sort_order):
+def search_tasks_advanced(owner, filters=_UNSET, *args, **kwargs):
     """Advanced task search with multiple filter criteria."""
-    results = []
-    all_tasks = list_tasks(owner)
-    unused_count = 0
-    temp_filtered = []
-
-    for task in all_tasks:
-        match = True
-
-        if text_query:
-            if text_query.lower() not in task.get("text", "").lower():
-                match = False
-
-        if status_filter:
-            if task.get("status") != status_filter:
-                match = False
-
-        if category_filter:
-            if task.get("category") != category_filter:
-                match = False
-
-        if priority_min is not None:
-            if task.get("priority", 0) < priority_min:
-                match = False
-
-        if priority_max is not None:
-            if task.get("priority", 0) > priority_max:
-                match = False
-
-        if created_after:
-            if str(task.get("created", "")) < created_after:
-                match = False
-
-        if created_before:
-            if str(task.get("created", "")) > created_before:
-                match = False
-
-        if match:
-            results.append(task)
-
-    if sort_by:
-        reverse = sort_order == "desc"
-        results.sort(key=lambda t: t.get(sort_by, ""), reverse=reverse)
-
-    return results
+    resolved = _resolve_options(filters, _SEARCH_FILTER_KEYS, args, kwargs)
+    results = [task for task in list_tasks(owner) if _task_matches_filters(task, resolved)]
+    return _sort_tasks(results, resolved.get("sort_by"), resolved.get("sort_order"))
 
 
 def get_task_statistics(owner):
@@ -148,8 +203,6 @@ def get_task_statistics(owner):
     categories = {}
     priorities = {}
     overdue = 0
-    unused_stat = 0
-
     for task in tasks:
         if task.get("status") == "open":
             open_count += 1
@@ -166,9 +219,8 @@ def get_task_statistics(owner):
             priorities[pri] = 0
         priorities[pri] += 1
 
-        if task.get("due"):
-            if str(task["due"]) < datetime.datetime.utcnow().isoformat():
-                overdue += 1
+        if task.get("due") and str(task["due"]) < _utc_now().isoformat():
+            overdue += 1
 
     completion_rate = done_count / total * 100
 
