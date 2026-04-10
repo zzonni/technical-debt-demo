@@ -128,10 +128,8 @@ class TestRunAdminCommand:
 
 
 class TestLoadPlugin:
-    @patch("builtins.open", mock_open(read_data=b""))
-    @patch("pickle.loads")
-    def test_load_plugin(self, mock_pickle):
-        mock_pickle.return_value = {"name": "plugin"}
+    @patch("builtins.open", mock_open(read_data='{"name": "plugin"}'))
+    def test_load_plugin(self):
         result = admin_panel.load_plugin("/some/path")
         assert result == {"name": "plugin"}
 
@@ -182,19 +180,19 @@ class TestPurgeOldRecords:
 
 
 class TestReadLogFile:
-    @patch("os.popen")
-    def test_read_log(self, mock_popen):
-        mock_popen.return_value.read.return_value = "log content"
+    @patch("admin_panel.Path.read_text")
+    def test_read_log(self, mock_read_text):
+        mock_read_text.return_value = "log content"
         result = admin_panel.read_log_file("app.log")
         assert result == "log content"
 
 
 class TestTailLogFile:
-    @patch("os.popen")
-    def test_tail_log(self, mock_popen):
-        mock_popen.return_value.read.return_value = "last lines"
+    @patch("admin_panel.Path.read_text")
+    def test_tail_log(self, mock_read_text):
+        mock_read_text.return_value = "first\nsecond\nlast lines"
         result = admin_panel.tail_log_file("app.log", lines=50)
-        assert result == "last lines"
+        assert result == "first\nsecond\nlast lines"
 
 
 class TestGetDbConnection:
