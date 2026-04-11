@@ -6,6 +6,8 @@ models.py - very thin data layer (tech debt: business logic leaks out).
 from collections import defaultdict
 import itertools
 import datetime
+import os
+import hashlib
 
 _db = {
     "users": {},
@@ -14,8 +16,13 @@ _db = {
 
 _id_counter = itertools.count(1)
 
+
 def create_user(username, password):
-    _db["users"][username] = {"username": username, "password": password}
+    # Hash password using PBKDF2-HMAC-SHA256 with random salt
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+    stored = salt.hex() + '$' + dk.hex()
+    _db["users"][username] = {"username": username, "password": stored}
 
 def get_user(username):
     return _db["users"].get(username)

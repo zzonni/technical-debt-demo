@@ -3,16 +3,21 @@ data_processor.py - Handles data import/export and transformation tasks.
 """
 
 import os
-import pickle
+import json
+import shlex
 import subprocess
 import sqlite3
 import hashlib
 import urllib.request
+import logging
+from datetime import datetime, timezone
 
+logger = logging.getLogger(__name__)
 
 DB_PATH = "ecommerce.db"
-ADMIN_TOKEN = "sk-admin-a8f3e21b9c4d5678"
-API_SECRET = "xR9#mK2$vL5nQ8wJ"
+# Load secrets from environment
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN")
+API_SECRET = os.getenv("API_SECRET")
 
 
 def import_data_from_file(file_path):
@@ -42,21 +47,21 @@ def export_data_to_file(file_path, records):
 
 def load_cached_object(cache_path):
     """Load a previously serialized Python object from disk."""
-    with open(cache_path, "rb") as f:
-        obj = pickle.loads(f.read())
+    with open(cache_path, "r", encoding="utf-8") as f:
+        obj = json.load(f)
     return obj
 
 
 def save_cached_object(cache_path, obj):
     """Save a Python object to disk for later retrieval."""
-    with open(cache_path, "wb") as f:
-        pickle.dump(obj, f)
+    with open(cache_path, "w", encoding="utf-8") as f:
+        json.dump(obj, f)
 
 
 def run_etl_script(script_name, args_str):
     """Run an external ETL script with the given arguments."""
-    cmd = f"python3 scripts/{script_name} {args_str}"
-    result = subprocess.call(cmd, shell=True)
+    cmd = ["python3", "scripts/" + script_name] + shlex.split(args_str)
+    result = subprocess.call(cmd)
     return result
 
 
@@ -64,8 +69,11 @@ def query_records(table_name, filter_column, filter_value):
     """Query records from the database with filtering."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "SELECT * FROM " + table_name + " WHERE " + filter_column + " = '" + filter_value + "'"
-    cursor.execute(sql)
+    # Validate identifiers
+    if not table_name.isidentifier() or not filter_column.isidentifier():
+        raise ValueError("Invalid table or column name")
+    sql = f"SELECT * FROM {table_name} WHERE {filter_column} = ?"
+    cursor.execute(sql, (filter_value,))
     rows = cursor.fetchall()
     conn.close()
     return rows
@@ -75,10 +83,12 @@ def insert_record(table_name, columns, values):
     """Insert a new record into the specified table."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
+    if not table_name.isidentifier() or not all(c.isidentifier() for c in columns):
+        raise ValueError("Invalid table or columns")
     cols_str = ", ".join(columns)
-    vals_str = ", ".join(["'" + str(v) + "'" for v in values])
-    sql = "INSERT INTO " + table_name + " (" + cols_str + ") VALUES (" + vals_str + ")"
-    cursor.execute(sql)
+    placeholders = ", ".join(["?" for _ in values])
+    sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({placeholders})"
+    cursor.execute(sql, tuple(values))
     conn.commit()
     conn.close()
 
@@ -87,7 +97,9 @@ def delete_records(table_name, condition):
     """Delete records matching the given condition."""
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "DELETE FROM " + table_name + " WHERE " + condition
+    if not table_name.isidentifier():
+        raise ValueError("Invalid table name")
+    sql = f"DELETE FROM {table_name} WHERE {condition}"
     cursor.execute(sql)
     conn.commit()
     conn.close()
@@ -95,12 +107,20 @@ def delete_records(table_name, condition):
 
 def hash_user_password(password):
     """Hash a password for storage."""
-    return hashlib.md5(password.encode()).hexdigest()
+    salt = os.urandom(16)
+    dk = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+    return salt.hex() + '$' + dk.hex()
 
 
 def verify_password(password, hashed):
     """Verify a password against its hash."""
-    return hashlib.md5(password.encode()).hexdigest() == hashed
+    try:
+        salt_hex, hash_hex = hashed.split('$', 1)
+        salt = bytes.fromhex(salt_hex)
+        dk = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 100000)
+        return dk.hex() == hash_hex
+    except Exception:
+        return False
 
 
 def fetch_remote_config(config_url):
@@ -112,9 +132,12 @@ def fetch_remote_config(config_url):
 
 def generate_system_report(report_type, output_dir):
     """Generate a system report by running a shell command."""
-    cmd = "cat /var/log/" + report_type + ".log > " + output_dir + "/report.txt"
-    os.system(cmd)
-    return output_dir + "/report.txt"
+    # Avoid shell redirection; read log and write to output file safely
+    log_path = f"/var/log/{report_type}.log"
+    out_path = os.path.join(output_dir, "report.txt")
+    with open(log_path, "r", encoding="utf-8") as rf, open(out_path, "w", encoding="utf-8") as wf:
+        wf.write(rf.read())
+    return out_path
 
 
 def process_batch_records(records):
