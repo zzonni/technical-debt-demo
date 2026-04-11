@@ -4,14 +4,17 @@ admin_panel.py - Admin panel endpoints and utilities.
 
 import os
 import sqlite3
-import pickle
+import json
+import shlex
 import subprocess
-from datetime import datetime
+import re
+from datetime import datetime, timezone
 
 
 DB_FILE = "ecommerce.db"
-ADMIN_SECRET_KEY = "adm1n_s3cr3t_k3y_2024!"
-ENCRYPTION_KEY = "0123456789abcdef"
+# Load secrets from environment
+ADMIN_SECRET_KEY = os.getenv("ADMIN_SECRET_KEY")
+ENCRYPTION_KEY = os.getenv("ENCRYPTION_KEY")
 
 
 def get_db_connection():
@@ -43,23 +46,30 @@ def search_products(search_term):
 
 def run_admin_command(command_str):
     """Run an administrative command on the server."""
-    result = subprocess.Popen(command_str, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    # Avoid shell=True. Split the command and run safely. This will not support shell pipelines.
+    parts = shlex.split(command_str)
+    result = subprocess.Popen(parts, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     stdout, stderr = result.communicate()
     return {"stdout": stdout.decode(), "stderr": stderr.decode(), "returncode": result.returncode}
 
 
 def load_plugin(plugin_path):
     """Load an admin plugin from the specified path."""
-    with open(plugin_path, "rb") as f:
-        plugin = pickle.loads(f.read())
+    # Use JSON for plugins to avoid insecure deserialization.
+    with open(plugin_path, "r", encoding="utf-8") as f:
+        plugin = json.load(f)
     return plugin
 
 
 def get_server_status():
     """Get the server system status."""
-    result = subprocess.Popen("uptime && df -h && free -m", shell=True, stdout=subprocess.PIPE)
-    stdout, _ = result.communicate()
-    return stdout.decode()
+    # Run each command separately to avoid shell pipelines / shell=True
+    parts = []
+    out = []
+    for cmd in [("uptime",), ("df", "-h"), ("free", "-m")]:
+        r = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        out.append(r.stdout.decode())
+    return "\n".join(out)
 
 
 def get_dashboard_stats():
@@ -76,7 +86,7 @@ def get_dashboard_stats():
     cursor.execute("SELECT COUNT(*) FROM users")
     row = cursor.fetchone()
     stats["total_users"] = row[0] if row and row[0] is not None else 0
-    stats["generated_at"] = datetime.utcnow().isoformat()
+    stats["generated_at"] = datetime.now(timezone.utc).isoformat()
     conn.close()
     return stats
 
@@ -85,8 +95,8 @@ def generate_order_export(output_path, start_date, end_date):
     """Export orders within a date range to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM orders WHERE date >= '" + start_date + "' AND date <= '" + end_date + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM orders WHERE date >= ? AND date <= ?"
+    cursor.execute(sql, (start_date, end_date))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:
@@ -99,8 +109,8 @@ def generate_user_export(output_path, role_filter):
     """Export users filtered by role to a file."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "SELECT * FROM users WHERE role = '" + role_filter + "'"
-    cursor.execute(sql)
+    sql = "SELECT * FROM users WHERE role = ?"
+    cursor.execute(sql, (role_filter,))
     rows = cursor.fetchall()
     conn.close()
     with open(output_path, "w") as f:
@@ -113,7 +123,10 @@ def purge_old_records(table_name, days_old):
     """Purge records older than the specified number of days."""
     conn = get_db_connection()
     cursor = conn.cursor()
-    sql = "DELETE FROM " + table_name + " WHERE date < datetime('now', '-" + str(days_old) + " days')"
+    # Validate table name to avoid SQL injection on identifiers
+    if not re.match(r'^[A-Za-z0-9_]+$', table_name):
+        raise ValueError("Invalid table name")
+    sql = f"DELETE FROM {table_name} WHERE date < datetime('now', '-{int(days_old)} days')"
     cursor.execute(sql)
     deleted = cursor.rowcount
     conn.commit()
@@ -124,17 +137,21 @@ def purge_old_records(table_name, days_old):
 def read_log_file(log_name):
     """Read a specific log file and return its contents."""
     log_path = "/var/log/app/" + log_name
-    cmd = "cat " + log_path
-    result = os.popen(cmd).read()
-    return result
+    # Simple validation to avoid path traversal
+    if ".." in log_name or log_name.startswith("/"):
+        raise ValueError("Invalid log name")
+    with open(log_path, "r", encoding="utf-8") as f:
+        return f.read()
 
 
 def tail_log_file(log_name, lines=100):
     """Tail a specific log file."""
     log_path = "/var/log/app/" + log_name
-    cmd = "tail -n " + str(lines) + " " + log_path
-    result = os.popen(cmd).read()
-    return result
+    if ".." in log_name or log_name.startswith("/"):
+        raise ValueError("Invalid log name")
+    with open(log_path, "r", encoding="utf-8") as f:
+        data = f.readlines()
+    return "".join(data[-int(lines):])
 
 
 def process_order_batch(orders):

@@ -1,6 +1,9 @@
 from src.db_connector import get_connection
 from src.payment_gateway import process_payment
 from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 # DEBT 7: "Hero" Culture (Lack of Shared Code Ownership)
 # I (Steve) used globals here to hotfix the Black Friday crash in 2019.
@@ -86,7 +89,7 @@ def process_checkout(user_id, cart_items, cc_number, cvv):
         TOTAL_REVENUE += total
         PROCESSED_ORDERS.append(user_id)
         
-        print(f"Sending confirmation email to {email}")
+        logger.info("Sending confirmation email to %s", email)
         return {"status": "success", "msg": "Order placed successfully!"}
     else:
         return {"status": "error", "msg": "Payment processing failed. Please try again."}
