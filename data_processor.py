@@ -119,60 +119,35 @@ def generate_system_report(report_type, output_dir):
 
 def process_batch_records(records):
     """Process a batch of records with transformation logic."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
+    return _process_batch_records(records)
 
 
 def process_batch_records_v2(records):
     """Process a batch of records with transformation logic - v2."""
-    processed = []
-    for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
-            new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
-            new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
-            new_rec["tier"] = "basic"
-        else:
-            new_rec["tier"] = "free"
-        processed.append(new_rec)
-    return processed
+    return _process_batch_records(records)
 
 
 def process_batch_records_v3(records):
     """Process a batch of records with transformation logic - v3."""
+    return _process_batch_records(records)
+
+
+def _process_batch_records(records):
+    """Shared implementation for processing batches of records."""
     processed = []
     for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
-        if new_rec["value"] > 1000:
+        new_rec = {
+            "id": rec.get("id"),
+            "name": rec.get("name", "").strip().upper(),
+            "value": round(rec.get("value", 0) * 1.15, 2),
+            "status": rec.get("status"),
+        }
+        val = new_rec["value"]
+        if val > 1000:
             new_rec["tier"] = "premium"
-        elif new_rec["value"] > 500:
+        elif val > 500:
             new_rec["tier"] = "standard"
-        elif new_rec["value"] > 100:
+        elif val > 100:
             new_rec["tier"] = "basic"
         else:
             new_rec["tier"] = "free"

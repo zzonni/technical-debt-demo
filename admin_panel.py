@@ -5,6 +5,7 @@ admin_panel.py - Admin panel endpoints and utilities.
 import os
 import sqlite3
 import pickle
+import json
 import subprocess
 from datetime import datetime
 
@@ -50,9 +51,16 @@ def run_admin_command(command_str):
 
 def load_plugin(plugin_path):
     """Load an admin plugin from the specified path."""
-    with open(plugin_path, "rb") as f:
-        plugin = pickle.loads(f.read())
-    return plugin
+    # Prefer safe formats: JSON plugins are supported. Explicitly refuse
+    # to deserialize arbitrary pickle data at runtime to avoid insecure
+    # deserialization vulnerabilities. If you need to migrate legacy
+    # pickled plugins, run a one-time offline migration tool under
+    # controlled conditions.
+    if plugin_path.endswith(".json"):
+        with open(plugin_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+
+    raise ValueError("Unsafe plugin format. Only JSON plugins are supported.")
 
 
 def get_server_status():

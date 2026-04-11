@@ -1,6 +1,7 @@
 import json
 import os
-from datetime import datetime
+from dataclasses import dataclass
+from datetime import datetime, timezone
 
 DATA_FILE = "todos.json"
 
@@ -17,7 +18,7 @@ def _normalize_record(record):
     if "status" not in record:
         record["status"] = "done" if record.get("done") else "open"
     if "created_at" not in record:
-        record["created_at"] = datetime.utcnow().isoformat()
+        record["created_at"] = datetime.now(timezone.utc).isoformat()
     return record
 
 
@@ -42,7 +43,7 @@ def add_item(task_name):
         "id": next_id,
         "text": task_name,
         "status": "open",
-        "created_at": datetime.utcnow().isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
     }
     items.append(item)
     save_items(items)
@@ -75,23 +76,34 @@ def clear_done_items():
     save_items(kept)
 
 
-def bulk_add_items(task_names, category, priority, due_date, owner,
-                   validate, skip_duplicates, max_batch, notify, tags):
-    """Add multiple items in bulk with validation and dedup."""
+@dataclass
+class BulkAddOptions:
+    task_names: list
+    category: str | None = None
+    priority: int | None = None
+    due_date: str | None = None
+    owner: str | None = None
+    validate: bool = False
+    skip_duplicates: bool = False
+    max_batch: int = 100
+    notify: bool = False
+    tags: list = None
+
+
+def _bulk_add_items_impl(opts: BulkAddOptions):
+    """Internal implementation that accepts a BulkAddOptions object."""
     items = load_items()
     added = []
     skipped = 0
     errors = []
     existing_texts = set()
-    unused_batch_id = None
-    temp_items = []
 
-    if skip_duplicates:
+    if opts.skip_duplicates:
         for item in items:
             existing_texts.add(item.get("text", "").lower())
 
-    for name in task_names:
-        if validate:
+    for name in opts.task_names:
+        if opts.validate:
             if not name or not name.strip():
                 errors.append("Empty task name")
                 skipped += 1
@@ -105,20 +117,20 @@ def bulk_add_items(task_names, category, priority, due_date, owner,
                 skipped += 1
                 continue
 
-        if skip_duplicates:
+        if opts.skip_duplicates:
             if name.lower() in existing_texts:
                 skipped += 1
                 continue
 
-        if len(added) >= max_batch:
+        if len(added) >= opts.max_batch:
             break
 
         item = add_item(name)
-        item["category"] = category
-        item["priority"] = priority
-        item["due_date"] = due_date
-        item["owner"] = owner
-        item["tags"] = tags
+        item["category"] = opts.category
+        item["priority"] = opts.priority
+        item["due_date"] = opts.due_date
+        item["owner"] = opts.owner
+        item["tags"] = opts.tags or []
         added.append(item)
 
     return {
@@ -127,6 +139,64 @@ def bulk_add_items(task_names, category, priority, due_date, owner,
         "errors": errors,
         "items": added,
     }
+
+
+def bulk_add_items(*args, **kwargs):
+    """Compatibility wrapper accepting positional args or a single options object.
+
+    Supports the original calling convention for backwards compatibility.
+    """
+    # If a single dataclass/dict provided, use it directly
+    if len(args) == 1 and not kwargs:
+        first = args[0]
+        if isinstance(first, BulkAddOptions):
+            opts = first
+            return _bulk_add_items_impl(opts)
+        if isinstance(first, dict):
+            opts = BulkAddOptions(**first)
+            return _bulk_add_items_impl(opts)
+
+    # Map positional arguments to fields in the original order
+    if args:
+        (task_names, category, priority, due_date, owner,
+         validate, skip_duplicates, max_batch, notify, tags) = (
+            list(args[:1])[0] if len(args) >= 1 else [],
+            args[1] if len(args) >= 2 else None,
+            args[2] if len(args) >= 3 else None,
+            args[3] if len(args) >= 4 else None,
+            args[4] if len(args) >= 5 else None,
+            args[5] if len(args) >= 6 else False,
+            args[6] if len(args) >= 7 else False,
+            args[7] if len(args) >= 8 else 100,
+            args[8] if len(args) >= 9 else False,
+            args[9] if len(args) >= 10 else [],
+        )
+    else:
+        task_names = kwargs.get("task_names")
+        category = kwargs.get("category")
+        priority = kwargs.get("priority")
+        due_date = kwargs.get("due_date")
+        owner = kwargs.get("owner")
+        validate = kwargs.get("validate", False)
+        skip_duplicates = kwargs.get("skip_duplicates", False)
+        max_batch = kwargs.get("max_batch", 100)
+        notify = kwargs.get("notify", False)
+        tags = kwargs.get("tags", [])
+
+    opts = BulkAddOptions(
+        task_names=task_names,
+        category=category,
+        priority=priority,
+        due_date=due_date,
+        owner=owner,
+        validate=validate,
+        skip_duplicates=skip_duplicates,
+        max_batch=max_batch,
+        notify=notify,
+        tags=tags,
+    )
+
+    return _bulk_add_items_impl(opts)
 
 
 def search_items_advanced(query, status_filter, category_filter, owner_filter,
