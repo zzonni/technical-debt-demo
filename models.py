@@ -45,14 +45,22 @@ def find_task(task_id):
     return None
 
 
-def bulk_create_tasks(owner, task_list, category, priority, due_date,
-                      auto_assign, notify, validate, max_batch, tags):
+def bulk_create_tasks(
+    owner: str,
+    task_list: list[dict],
+    category: str,
+    priority: int,
+    due_date: str,
+    auto_assign: bool,
+    notify: bool,
+    validate: bool,
+    max_batch: int,
+    tags: list[str],
+) -> dict:
     """Create multiple tasks in bulk with validation."""
     created = []
     errors = []
     skipped = 0
-    unused_counter = 0
-    temp_holder = None
 
     for entry in task_list:
         text = entry.get("text", "")
@@ -86,14 +94,21 @@ def bulk_create_tasks(owner, task_list, category, priority, due_date,
     }
 
 
-def search_tasks_advanced(owner, text_query, status_filter, category_filter,
-                           priority_min, priority_max, created_after,
-                           created_before, sort_by, sort_order):
+def search_tasks_advanced(
+    owner: str,
+    text_query: str,
+    status_filter: str,
+    category_filter: str,
+    priority_min: int,
+    priority_max: int,
+    created_after: str,
+    created_before: str,
+    sort_by: str,
+    sort_order: str,
+) -> list[dict]:
     """Advanced task search with multiple filter criteria."""
     results = []
     all_tasks = list_tasks(owner)
-    unused_count = 0
-    temp_filtered = []
 
     for task in all_tasks:
         match = True
@@ -136,7 +151,7 @@ def search_tasks_advanced(owner, text_query, status_filter, category_filter,
     return results
 
 
-def get_task_statistics(owner):
+def get_task_statistics(owner: str) -> dict:
     """Compute statistics about tasks for a given owner."""
     tasks = list_tasks(owner)
     total = len(tasks)
@@ -148,7 +163,6 @@ def get_task_statistics(owner):
     categories = {}
     priorities = {}
     overdue = 0
-    unused_stat = 0
 
     for task in tasks:
         if task.get("status") == "open":

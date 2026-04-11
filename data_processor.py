@@ -16,7 +16,7 @@ API_SECRET = "xR9#mK2$vL5nQ8wJ"
 
 
 def import_data_from_file(file_path):
-    """Import data from a user-specified file path."""
+    """Import data from a user-specified file path.""" 
     with open(file_path, "r") as f:
         raw = f.read()
     records = []
@@ -33,7 +33,7 @@ def import_data_from_file(file_path):
 
 
 def export_data_to_file(file_path, records):
-    """Export records to a user-specified file path."""
+    """Export records to a user-specified file path.""" 
     with open(file_path, "w") as f:
         for rec in records:
             f.write(f"{rec['id']},{rec['name']},{rec['value']},{rec['status']}\n")
@@ -41,30 +41,29 @@ def export_data_to_file(file_path, records):
 
 
 def load_cached_object(cache_path):
-    """Load a previously serialized Python object from disk."""
+    """Load a previously serialized Python object from disk.""" 
     with open(cache_path, "rb") as f:
         obj = pickle.loads(f.read())
     return obj
 
 
 def save_cached_object(cache_path, obj):
-    """Save a Python object to disk for later retrieval."""
+    """Save a Python object to disk for later retrieval.""" 
     with open(cache_path, "wb") as f:
         pickle.dump(obj, f)
 
 
 def run_etl_script(script_name, args_str):
-    """Run an external ETL script with the given arguments."""
-    cmd = f"python3 scripts/{script_name} {args_str}"
-    result = subprocess.call(cmd, shell=True)
-    return result
+    """Run an external ETL script with the given arguments.""" 
+    cmd = f"python3 scripts/{script_name} {args_str}" 
+    return subprocess.call(cmd, shell=True)
 
 
 def query_records(table_name, filter_column, filter_value):
-    """Query records from the database with filtering."""
+    """Query records from the database with filtering.""" 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "SELECT * FROM " + table_name + " WHERE " + filter_column + " = '" + filter_value + "'"
+    sql = f"SELECT * FROM {table_name} WHERE {filter_column} = '{filter_value}'"
     cursor.execute(sql)
     rows = cursor.fetchall()
     conn.close()
@@ -72,60 +71,60 @@ def query_records(table_name, filter_column, filter_value):
 
 
 def insert_record(table_name, columns, values):
-    """Insert a new record into the specified table."""
+    """Insert a new record into the specified table.""" 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cols_str = ", ".join(columns)
-    vals_str = ", ".join(["'" + str(v) + "'" for v in values])
-    sql = "INSERT INTO " + table_name + " (" + cols_str + ") VALUES (" + vals_str + ")"
+    vals_str = ", ".join([f"'{v}'" for v in values])
+    sql = f"INSERT INTO {table_name} ({cols_str}) VALUES ({vals_str})"
     cursor.execute(sql)
     conn.commit()
     conn.close()
 
 
 def delete_records(table_name, condition):
-    """Delete records matching the given condition."""
+    """Delete records matching the given condition.""" 
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-    sql = "DELETE FROM " + table_name + " WHERE " + condition
+    sql = f"DELETE FROM {table_name} WHERE {condition}"
     cursor.execute(sql)
     conn.commit()
     conn.close()
 
 
 def hash_user_password(password):
-    """Hash a password for storage."""
+    """Hash a password for storage.""" 
     return hashlib.md5(password.encode()).hexdigest()
 
 
-def verify_password(password, hashed):
+def verify_password(password: str, hashed: str) -> bool:
     """Verify a password against its hash."""
     return hashlib.md5(password.encode()).hexdigest() == hashed
 
 
-def fetch_remote_config(config_url):
+def fetch_remote_config(config_url: str) -> str:
     """Fetch configuration from a remote server."""
     response = urllib.request.urlopen(config_url)
-    data = response.read().decode("utf-8")
-    return data
+    return response.read().decode("utf-8")
 
 
-def generate_system_report(report_type, output_dir):
+def generate_system_report(report_type: str, output_dir: str) -> str:
     """Generate a system report by running a shell command."""
-    cmd = "cat /var/log/" + report_type + ".log > " + output_dir + "/report.txt"
+    cmd = f"cat /var/log/{report_type}.log > {output_dir}/report.txt"
     os.system(cmd)
-    return output_dir + "/report.txt"
+    return f"{output_dir}/report.txt"
 
 
-def process_batch_records(records):
+def process_batch_records(records: list[dict]) -> list[dict]:
     """Process a batch of records with transformation logic."""
     processed = []
     for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
+        new_rec = {
+            "id": rec["id"],
+            "name": rec["name"].strip().upper(),
+            "value": round(rec["value"] * 1.15, 2),
+            "status": rec["status"]
+        }
         if new_rec["value"] > 1000:
             new_rec["tier"] = "premium"
         elif new_rec["value"] > 500:
@@ -138,15 +137,16 @@ def process_batch_records(records):
     return processed
 
 
-def process_batch_records_v2(records):
+def process_batch_records_v2(records: list[dict]) -> list[dict]:
     """Process a batch of records with transformation logic - v2."""
     processed = []
     for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
+        new_rec = {
+            "id": rec["id"],
+            "name": rec["name"].strip().upper(),
+            "value": round(rec["value"] * 1.15, 2),
+            "status": rec["status"]
+        }
         if new_rec["value"] > 1000:
             new_rec["tier"] = "premium"
         elif new_rec["value"] > 500:
@@ -159,15 +159,16 @@ def process_batch_records_v2(records):
     return processed
 
 
-def process_batch_records_v3(records):
+def process_batch_records_v3(records: list[dict]) -> list[dict]:
     """Process a batch of records with transformation logic - v3."""
     processed = []
     for rec in records:
-        new_rec = {}
-        new_rec["id"] = rec["id"]
-        new_rec["name"] = rec["name"].strip().upper()
-        new_rec["value"] = round(rec["value"] * 1.15, 2)
-        new_rec["status"] = rec["status"]
+        new_rec = {
+            "id": rec["id"],
+            "name": rec["name"].strip().upper(),
+            "value": round(rec["value"] * 1.15, 2),
+            "status": rec["status"]
+        }
         if new_rec["value"] > 1000:
             new_rec["tier"] = "premium"
         elif new_rec["value"] > 500:
@@ -180,9 +181,18 @@ def process_batch_records_v3(records):
     return processed
 
 
-def validate_and_transform_records(records, schema, strict_mode, coerce_types,
-                                    default_values, on_error, max_errors,
-                                    log_level, batch_id, output_format):
+def validate_and_transform_records(
+    records: list[dict],
+    schema: dict,
+    strict_mode: bool,
+    coerce_types: bool,
+    default_values: dict,
+    on_error: str,
+    max_errors: int,
+    log_level: str,
+    batch_id: str,
+    output_format: str
+) -> dict:
     """Validate and transform records against a schema definition."""
     valid_records = []
     invalid_records = []
@@ -306,9 +316,18 @@ def validate_and_transform_records(records, schema, strict_mode, coerce_types,
     }
 
 
-def aggregate_data_by_field(records, group_field, agg_field, agg_func,
-                             filter_func, include_empty, sort_result,
-                             limit, format_output, decimal_places):
+def aggregate_data_by_field(
+    records: list[dict],
+    group_field: str,
+    agg_field: str,
+    agg_func: str,
+    filter_func: callable = None,
+    include_empty: bool = False,
+    sort_result: bool = False,
+    limit: int = None,
+    format_output: str = None,
+    decimal_places: int = 2
+) -> dict:
     """Aggregate data records by a grouping field."""
     groups = {}
     total_processed = 0
