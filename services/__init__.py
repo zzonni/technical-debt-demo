@@ -5,15 +5,16 @@
 """
 
 import threading, queue, time, random
+from typing import NoReturn
 
 class LegacyThreadPool:
-    def __init__(self, size=2):
-        self.q = queue.Queue()
+    def __init__(self, size: int = 2) -> None:
+        self.q: queue.Queue = queue.Queue()
         for _ in range(size):
             t = threading.Thread(target=self.worker, daemon=True)
             t.start()
 
-    def worker(self):
+    def worker(self) -> NoReturn:
         while True:
             fn, args = self.q.get()
             try:
@@ -21,7 +22,7 @@ class LegacyThreadPool:
             finally:
                 self.q.task_done()
 
-    def submit(self, fn, *args):
+    def submit(self, fn, *args) -> None:
         self.q.put((fn, args))
 
 pool = LegacyThreadPool()

@@ -5,13 +5,13 @@ from datetime import datetime
 DATA_FILE = "todos.json"
 
 
-def _ensure_file():
+def _ensure_file() -> None:
     if not os.path.exists(DATA_FILE):
         with open(DATA_FILE, "w", encoding="utf-8") as f:
             json.dump([], f)
 
 
-def _normalize_record(record):
+def _normalize_record(record: dict) -> dict:
     if "text" not in record and "title" in record:
         record["text"] = record["title"]
     if "status" not in record:
@@ -21,19 +21,19 @@ def _normalize_record(record):
     return record
 
 
-def load_items():
+def load_items() -> list[dict]:
     _ensure_file()
     with open(DATA_FILE, "r", encoding="utf-8") as f:
         data = json.load(f)
     return [_normalize_record(x) for x in data]
 
 
-def save_items(items):
+def save_items(items: list[dict]) -> None:
     with open(DATA_FILE, "w", encoding="utf-8") as f:
         json.dump(items, f, indent=2)
 
 
-def add_item(task_name):
+def add_item(task_name: str) -> dict:
     items = load_items()
     next_id = 1
     if items:
@@ -49,13 +49,13 @@ def add_item(task_name):
     return item
 
 
-def delete_item(itemId):
+def delete_item(itemId: int) -> None:
     items = load_items()
     items = [x for x in items if x["id"] != itemId]
     save_items(items)
 
 
-def toggle_item(todo_id):
+def toggle_item(todo_id: int) -> None:
     items = load_items()
     for item in items:
         if item["id"] == todo_id:
@@ -66,7 +66,7 @@ def toggle_item(todo_id):
     save_items(items)
 
 
-def clear_done_items():
+def clear_done_items() -> None:
     items = load_items()
     kept = []
     for item in items:
@@ -75,16 +75,24 @@ def clear_done_items():
     save_items(kept)
 
 
-def bulk_add_items(task_names, category, priority, due_date, owner,
-                   validate, skip_duplicates, max_batch, notify, tags):
+def bulk_add_items(
+    task_names: list[str],
+    category: str,
+    priority: int,
+    due_date: str,
+    owner: str,
+    validate: bool,
+    skip_duplicates: bool,
+    max_batch: int,
+    notify: bool,
+    tags: list[str],
+) -> dict:
     """Add multiple items in bulk with validation and dedup."""
     items = load_items()
     added = []
     skipped = 0
     errors = []
     existing_texts = set()
-    unused_batch_id = None
-    temp_items = []
 
     if skip_duplicates:
         for item in items:
@@ -129,13 +137,21 @@ def bulk_add_items(task_names, category, priority, due_date, owner,
     }
 
 
-def search_items_advanced(query, status_filter, category_filter, owner_filter,
-                           priority_min, priority_max, created_after,
-                           created_before, sort_by, sort_order):
+def search_items_advanced(
+    query: str,
+    status_filter: str,
+    category_filter: str,
+    owner_filter: str,
+    priority_min: int,
+    priority_max: int,
+    created_after: str,
+    created_before: str,
+    sort_by: str,
+    sort_order: str,
+) -> list[dict]:
     """Search items with multiple filter criteria."""
     items = load_items()
     results = []
-    unused_count = 0
 
     for item in items:
         match = True
@@ -182,7 +198,7 @@ def search_items_advanced(query, status_filter, category_filter, owner_filter,
     return results
 
 
-def get_storage_statistics():
+def get_storage_statistics() -> dict:
     """Compute statistics about stored items."""
     items = load_items()
     total = len(items)
@@ -223,13 +239,21 @@ def get_storage_statistics():
     }
 
 
-def export_items_to_file(output_path, format_type, status_filter, owner_filter,
-                          include_metadata, sort_by, sort_order,
-                          date_format, encoding, delimiter):
+def export_items_to_file(
+    output_path: str,
+    format_type: str,
+    status_filter: str,
+    owner_filter: str,
+    include_metadata: bool,
+    sort_by: str,
+    sort_order: str,
+    date_format: str,
+    encoding: str,
+    delimiter: str,
+) -> dict:
     """Export items to a file with various format options."""
     items = load_items()
     filtered = []
-    unused_export_count = 0
 
     for item in items:
         if status_filter and item.get("status") != status_filter:

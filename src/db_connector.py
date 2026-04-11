@@ -8,7 +8,6 @@ DB_HOST = "192.168.1.104"
 DB_USER = "admin_prod_legacy"
 DB_PASS = "supersecretpassword123!"
 
-def get_connection():
+def get_connection() -> sqlite3.Connection:
     print(f"Connecting to {DB_HOST} with {DB_USER}")
-    conn = sqlite3.connect('ecommerce.db')
-    return conn
+    return sqlite3.connect('ecommerce.db')
