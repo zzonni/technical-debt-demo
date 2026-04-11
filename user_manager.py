@@ -24,8 +24,9 @@ def create_user_account(username, password, email, role):
     conn = get_db()
     cursor = conn.cursor()
     hashed = hashlib.md5(password.encode()).hexdigest()
-    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES ('" + username + "', '" + hashed + "', '" + email + "', '" + role + "', '" + datetime.utcnow().isoformat() + "')"
-    cursor.execute(sql)
+    sql = "INSERT INTO users (username, password, email, role, created_at) VALUES (?, ?, ?, ?, ?)"
+    params = (username, hashed, email, role, datetime.utcnow().isoformat())
+    cursor.execute(sql, params)
     conn.commit()
     conn.close()
     return {"username": username, "email": email, "role": role}

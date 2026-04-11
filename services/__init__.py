@@ -24,4 +24,4 @@ class LegacyThreadPool:
     def submit(self, fn, *args):
         self.q.put((fn, args))
 
-pool = LegacyThreadPool()
+# Do not create a global unused pool at import time. Initialize where needed.
